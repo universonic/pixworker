@@ -124,7 +124,7 @@ pub enum SubCommands {
         #[arg(short, long, value_name = "FLOAT64|STRING", default_value = "2.0")]
         upscale: Option<String>,
 
-        /// Specify the upscaling model. Supported models: "realesr-animevideov3" (default), "realesr-animevideov3-hf", "realesr-general-x4v3", "realesr-general-x4v3-hf", "realesrgan-x4plus", "realesrgan-x4plus-hf", "realesrgan-x4plus-anime", "realesrgan-x4plus-anime-hf".
+        /// Specify the upscaling model. Supported models: "realesr-animevideov3" (default), "realesr-animevideov3-hf", "realesr-generalx4v3", "realesr-generalx4v3-hf", "realesrgan-x4plus", "realesrgan-x4plus-hf", "realesrgan-x4plus-anime", "realesrgan-x4plus-anime-hf".
         #[arg(long, value_name = "STRING", default_value = "realesr-animevideov3")]
         upscale_model: Option<String>,
 

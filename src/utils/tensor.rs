@@ -673,14 +673,34 @@ impl EnhanceOptions {
                 // Add batch dimension: [1, C, H, W]
                 let chw_batch = chw.view().insert_axis(Axis(0));
 
+                // Check if model supports denoise_strength input (only realesr-general-x4v3)
+                let supports_denoise = matches!(
+                    self.upscale_model,
+                    UpscaleModel::RealESRGeneralx4v3 | UpscaleModel::RealESRGeneralx4v3Hf
+                );
+                
+                // Denoise strength: 1.0 favors detail, 0.0 favors denoise
+                let denoise_strength = 0.1f32; // Balanced default
+
                 // Run inference and get output in HWC format [H, W, C] with values [0, 255]
                 current_frame = if use_fp16 {
                     // FP16 path: convert input to fp16, run inference, convert output back
                     let chw_fp16 = chw_batch.mapv(|v| f16::from_f32(v));
                     let input_tensor = CowArray::from(chw_fp16.into_dyn());
-                    let value = Value::from_array(allocator, &input_tensor)?;
+                    
+                    // Prepare denoise tensor outside of conditional to avoid lifetime issues
+                    let denoise_array = Array::from_shape_vec((1,), vec![f16::from_f32(denoise_strength)])?;
+                    let denoise_tensor = CowArray::from(denoise_array.into_dyn());
+                    
+                    let img_value = Value::from_array(allocator, &input_tensor)?;
+                    let denoise_value = Value::from_array(allocator, &denoise_tensor)?;
 
-                    let outputs = session.run(vec![value])?;
+                    let outputs = if supports_denoise {
+                        session.run(vec![img_value, denoise_value])?
+                    } else {
+                        session.run(vec![img_value])?
+                    };
+                    
                     let output = &outputs[0];
                     
                     // Extract and process FP16 output directly to avoid extra conversions
@@ -694,9 +714,20 @@ impl EnhanceOptions {
                 } else {
                     // FP32 path: no type conversion needed
                     let input_tensor = CowArray::from(chw_batch.to_owned().into_dyn());
-                    let value = Value::from_array(allocator, &input_tensor)?;
+                    
+                    // Prepare denoise tensor outside of conditional to avoid lifetime issues
+                    let denoise_array = Array::from_shape_vec((1,), vec![denoise_strength])?;
+                    let denoise_tensor = CowArray::from(denoise_array.into_dyn());
+                    
+                    let img_value = Value::from_array(allocator, &input_tensor)?;
+                    let denoise_value = Value::from_array(allocator, &denoise_tensor)?;
 
-                    let outputs = session.run(vec![value])?;
+                    let outputs = if supports_denoise {
+                        session.run(vec![img_value, denoise_value])?
+                    } else {
+                        session.run(vec![img_value])?
+                    };
+
                     let output = &outputs[0];
                     let output_fp32 = output.try_extract::<f32>()?;
                     
