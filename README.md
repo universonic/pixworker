@@ -99,10 +99,10 @@ Or the program will automatically download them from huggingface.co.
 
 ```bash
 # Frame interpolation - increase video frame rate to 60fps
-pixworker vfi input.mp4 output.mp4 --fps 60
+pixworker enhance --vfi 60fps --vfi-model gimm-vfi-f-p-hf -i input.mp4 -o output.mp4
 
 # Video upscaling - 4x resolution
-pixworker upscale input.mp4 output.mp4 --scale 4
+pixworker enhance --upscale 4.0 --upscale-model realesr-animevideov3-hf -i input.mp4 -o output.mp4
 
 # Show help
 pixworker --help
