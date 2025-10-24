@@ -1,0 +1,6 @@
+.DS_Store
+/target
+/tmp
+/artifacts
+/logs
+/dist

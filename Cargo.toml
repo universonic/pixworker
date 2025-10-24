@@ -1,0 +1,26 @@
+[package]
+name = "pixworker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+bytemuck = "1.24.0"
+clap = { version = "4.5.49", features = ["derive"] }
+dirs = "6.0.0"
+half = "2.7.1"
+reqwest = { version = "0.12.24", features = ["blocking"] }
+scopeguard = "1.2"
+tempfile = "3.23.0"
+image = { version = "0.25", features = ["png", "jpeg"] }
+ndarray = "0.15.6"
+ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "coreml"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "directml", "cuda"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "cuda", "tensorrt"] }
