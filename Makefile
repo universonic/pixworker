@@ -92,21 +92,29 @@ build-targets: add-targets
 		fi; \
 	done
 
-## Collect built binaries into dist/<triple>/
+## Collect built binaries and dynamic libraries into dist/<triple>/
 collect:
-	@echo "==> Collecting binaries into ./dist"
+	@echo "==> Collecting binaries and libraries into ./dist"
 	@rm -rf dist
 	@mkdir -p dist
 	@for t in $(TARGETS); do \
 		case $$t in \
-		*windows*) ext=.exe ;; \
-		*) ext= ;; \
+		*windows*) ext=.exe; libext=.dll ;; \
+		*darwin*) ext=; libext=.dylib ;; \
+		*) ext=; libext=.so ;; \
 		esac; \
 		src=target/$$t/release/$(BIN_NAME)$${ext}; \
 		if [ -f "$$src" ]; then \
 			mkdir -p dist/$$t; \
 			cp "$$src" dist/$$t/ || true; \
 			echo "  copied: $$src -> dist/$$t/"; \
+			\
+			for lib in target/$$t/release/*$${libext}; do \
+				if [ -f "$$lib" ]; then \
+					cp "$$lib" dist/$$t/ || true; \
+					echo "  copied: $$lib -> dist/$$t/"; \
+				fi; \
+			done; \
 		else \
 			echo "  missing: $$src"; \
 		fi; \
@@ -121,36 +129,66 @@ macos-x64:
 	@rustup target add x86_64-apple-darwin >/dev/null 2>&1 || true
 	@cargo build --release --target x86_64-apple-darwin
 	@echo "✓ Binary: target/x86_64-apple-darwin/release/$(BIN_NAME)"
+	@echo "Copying dynamic libraries..."
+	@mkdir -p dist/x86_64-apple-darwin
+	@cp target/x86_64-apple-darwin/release/$(BIN_NAME) dist/x86_64-apple-darwin/
+	@cp target/x86_64-apple-darwin/release/*.dylib dist/x86_64-apple-darwin/ 2>/dev/null || true
+	@echo "✓ Package ready: dist/x86_64-apple-darwin/"
 
 macos-arm64:
 	@echo "==> Building for macOS ARM64"
 	@rustup target add aarch64-apple-darwin >/dev/null 2>&1 || true
 	@cargo build --release --target aarch64-apple-darwin
 	@echo "✓ Binary: target/aarch64-apple-darwin/release/$(BIN_NAME)"
+	@echo "Copying dynamic libraries..."
+	@mkdir -p dist/aarch64-apple-darwin
+	@cp target/aarch64-apple-darwin/release/$(BIN_NAME) dist/aarch64-apple-darwin/
+	@cp target/aarch64-apple-darwin/release/*.dylib dist/aarch64-apple-darwin/ 2>/dev/null || true
+	@echo "✓ Package ready: dist/aarch64-apple-darwin/"
 
 linux-x64:
 	@echo "==> Building for Linux x86_64"
 	@rustup target add x86_64-unknown-linux-gnu >/dev/null 2>&1 || true
 	@cargo build --release --target x86_64-unknown-linux-gnu
 	@echo "✓ Binary: target/x86_64-unknown-linux-gnu/release/$(BIN_NAME)"
+	@echo "Copying dynamic libraries..."
+	@mkdir -p dist/x86_64-unknown-linux-gnu
+	@cp target/x86_64-unknown-linux-gnu/release/$(BIN_NAME) dist/x86_64-unknown-linux-gnu/
+	@cp target/x86_64-unknown-linux-gnu/release/*.so dist/x86_64-unknown-linux-gnu/ 2>/dev/null || true
+	@echo "✓ Package ready: dist/x86_64-unknown-linux-gnu/"
 
 linux-arm64:
 	@echo "==> Building for Linux ARM64"
 	@rustup target add aarch64-unknown-linux-gnu >/dev/null 2>&1 || true
 	@cargo build --release --target aarch64-unknown-linux-gnu
 	@echo "✓ Binary: target/aarch64-unknown-linux-gnu/release/$(BIN_NAME)"
+	@echo "Copying dynamic libraries..."
+	@mkdir -p dist/aarch64-unknown-linux-gnu
+	@cp target/aarch64-unknown-linux-gnu/release/$(BIN_NAME) dist/aarch64-unknown-linux-gnu/
+	@cp target/aarch64-unknown-linux-gnu/release/*.so dist/aarch64-unknown-linux-gnu/ 2>/dev/null || true
+	@echo "✓ Package ready: dist/aarch64-unknown-linux-gnu/"
 
 windows-x64:
 	@echo "==> Building for Windows x86_64"
 	@rustup target add x86_64-pc-windows-msvc >/dev/null 2>&1 || true
 	@cargo build --release --target x86_64-pc-windows-msvc
 	@echo "✓ Binary: target/x86_64-pc-windows-msvc/release/$(BIN_NAME).exe"
+	@echo "Copying dynamic libraries..."
+	@mkdir -p dist/x86_64-pc-windows-msvc
+	@cp target/x86_64-pc-windows-msvc/release/$(BIN_NAME).exe dist/x86_64-pc-windows-msvc/
+	@cp target/x86_64-pc-windows-msvc/release/*.dll dist/x86_64-pc-windows-msvc/ 2>/dev/null || true
+	@echo "✓ Package ready: dist/x86_64-pc-windows-msvc/"
 
 windows-arm64:
 	@echo "==> Building for Windows ARM64"
 	@rustup target add aarch64-pc-windows-msvc >/dev/null 2>&1 || true
 	@cargo build --release --target aarch64-pc-windows-msvc
 	@echo "✓ Binary: target/aarch64-pc-windows-msvc/release/$(BIN_NAME).exe"
+	@echo "Copying dynamic libraries..."
+	@mkdir -p dist/aarch64-pc-windows-msvc
+	@cp target/aarch64-pc-windows-msvc/release/$(BIN_NAME).exe dist/aarch64-pc-windows-msvc/
+	@cp target/aarch64-pc-windows-msvc/release/*.dll dist/aarch64-pc-windows-msvc/ 2>/dev/null || true
+	@echo "✓ Package ready: dist/aarch64-pc-windows-msvc/"
 
 clean:
 	@echo "Cleaning cargo artifacts"
