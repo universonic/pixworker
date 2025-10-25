@@ -4,15 +4,14 @@ use anyhow::{Result, bail};
 use half::f16;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgb};
-use ndarray::stack;
-use ndarray::{Array, Axis, Ix3, Ix4, s};
+use ndarray::{stack, Array, Axis, Ix3, Ix4, s};
 #[cfg(target_os = "macos")]
 use ort::execution_providers::CoreMLExecutionProvider;
 use ort::execution_providers::ExecutionProvider;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use ort::execution_providers::{CUDAExecutionProvider, TensorRTExecutionProvider};
 use ort::session::builder::GraphOptimizationLevel;
-use ort::{session::Session, value::Value};
+use ort::{session::Session, value::{Tensor, Value}};
 use scopeguard::defer;
 use std::fs;
 use std::io;
@@ -660,30 +659,27 @@ impl EnhanceOptions {
                 // Run inference and get output in HWC format [H, W, C] with values [0, 255]
                 current_frame = if use_fp16 {
                     // FP16 path: convert input to fp16, run inference, convert output back
-                    let chw_fp16 = chw_batch.mapv(|v| f16::from_f32(v));
-                    let shape = chw_fp16.shape().to_vec();
-                    let data = chw_fp16.into_raw_vec().into_boxed_slice();
+                    let chw_fp16 = chw_batch.mapv(f16::from_f32);
 
-                    // Prepare denoise tensor
-                    let denoise_data = vec![f16::from_f32(denoise_strength)].into_boxed_slice();
+                    // Prepare denoise tensor in fp16
+                    let denoise_tensor = Tensor::from_array(Array::from_shape_vec(
+                        (1,),
+                        vec![f16::from_f32(denoise_strength)],
+                    )?)?;
 
-                    let img_value = Value::from_array((shape, data))?;
-                    let denoise_value = Value::from_array((vec![1], denoise_data))?;
+                    let img_tensor = Tensor::from_array(chw_fp16)?;
 
                     let outputs = if supports_denoise {
-                        session.run(ort::inputs![img_value, denoise_value])?
+                        session.run(ort::inputs![img_tensor, denoise_tensor])?
                     } else {
-                        session.run(ort::inputs![img_value])?
+                        session.run(ort::inputs![img_tensor])?
                     };
 
                     let output = &outputs[0];
 
                     // Extract and process FP16 output directly to avoid extra conversions
-                    let output_fp16 = output.try_extract_tensor::<f16>()?;
-                    let out_dims: Vec<usize> = output_fp16.0.iter().map(|&x| x as usize).collect();
-                    let output_4d =
-                        Array::from_shape_vec(out_dims.as_slice(), output_fp16.1.to_vec())?
-                            .into_dimensionality::<Ix4>()?;
+                    let output_array = output.try_extract_array::<f16>()?;
+                    let output_4d = output_array.to_owned().into_dimensionality::<Ix4>()?;
                     let output_3d = output_4d.index_axis(Axis(0), 0);
                     let hwc = output_3d
                         .permuted_axes([1, 2, 0])
@@ -694,27 +690,25 @@ impl EnhanceOptions {
                     hwc.mapv(|v| (v.to_f32() * 255.0).clamp(0.0, 255.0))
                 } else {
                     // FP32 path: no type conversion needed
-                    let shape = chw_batch.shape().to_vec();
-                    let data = chw_batch.to_owned().into_raw_vec().into_boxed_slice();
+                    let chw_owned = chw_batch.to_owned();
 
-                    // Prepare denoise tensor
-                    let denoise_data = vec![denoise_strength].into_boxed_slice();
+                    // Prepare denoise tensor in fp32
+                    let denoise_tensor = Tensor::from_array(Array::from_shape_vec(
+                        (1,),
+                        vec![denoise_strength],
+                    )?)?;
 
-                    let img_value = Value::from_array((shape, data))?;
-                    let denoise_value = Value::from_array((vec![1], denoise_data))?;
+                    let img_tensor = Tensor::from_array(chw_owned)?;
 
                     let outputs = if supports_denoise {
-                        session.run(ort::inputs![img_value, denoise_value])?
+                        session.run(ort::inputs![img_tensor, denoise_tensor])?
                     } else {
-                        session.run(ort::inputs![img_value])?
+                        session.run(ort::inputs![img_tensor])?
                     };
 
                     let output = &outputs[0];
-                    let output_fp32 = output.try_extract_tensor::<f32>()?;
-                    let out_dims: Vec<usize> = output_fp32.0.iter().map(|&x| x as usize).collect();
-                    let output_4d =
-                        Array::from_shape_vec(out_dims.as_slice(), output_fp32.1.to_vec())?
-                            .into_dimensionality::<Ix4>()?;
+                    let output_array = output.try_extract_array::<f32>()?;
+                    let output_4d = output_array.to_owned().into_dimensionality::<Ix4>()?;
                     let output_3d = output_4d.index_axis(Axis(0), 0);
                     let hwc = output_3d
                         .permuted_axes([1, 2, 0])
@@ -814,137 +808,46 @@ impl EnhanceOptions {
         // Generate all interpolated frames
         let mut result_frames = Vec::with_capacity(num_interp);
 
-        for i in 0..num_interp {
-            // Calculate time value for this interpolation
-            let t_value = (i + 1) as f32 / (num_interp + 1) as f32;
-
-            // ================================================================
-            // Generate all inputs based on model precision
-            // This avoids unnecessary type conversions between fp16 and fp32
-            // ================================================================
-
-            // Note: ds_factor is now fixed at 1.0 inside the ONNX model
-            // No need to pass it as an input anymore
-
-            // Prepare ONNX inputs based on precision
-            let outputs = if use_fp16 {
-                // ============================================================
-                // FP16 path: img_xs and t are fp16, coord is ALWAYS fp32
-                // ============================================================
-
-                // CRITICAL: coord is ALWAYS fp32, even for fp16 models
-                let coord_array = self.generate_coord(1, height, width, t_value)?;
-
-                // Create t tensor in fp16
+        let mut infer_frame = |t_value: f32| -> Result<Array<f32, Ix3>> {
+            // Generate coordinate tensor (always fp32)
+            let coord_array = self.generate_coord(1, height, width, t_value)?;
+            
+            if use_fp16 {
+                // FP16 path: img_xs and t are fp16, coord is always fp32
                 let t_array = Array::from_shape_vec((1,), vec![f16::from_f32(t_value)])?;
-
-                // Create ONNX Value objects using tuple format
-                let img_xs_data = img_xs_fp16
-                    .as_ref()
-                    .expect("fp16 tensor available")
-                    .as_slice()
-                    .expect("contiguous array")
-                    .to_vec()
-                    .into_boxed_slice();
-                let img_xs_shape = img_xs_fp16.as_ref().unwrap().shape().to_vec();
-                let img_xs_value = Value::from_array((img_xs_shape, img_xs_data))?;
-
-                let coord_data = coord_array
-                    .as_slice()
-                    .expect("contiguous array")
-                    .to_vec()
-                    .into_boxed_slice();
-                let coord_shape = coord_array.shape().to_vec();
-                let coord_value = Value::from_array((coord_shape, coord_data))?;
-
-                let t_data = t_array
-                    .as_slice()
-                    .expect("contiguous array")
-                    .to_vec()
-                    .into_boxed_slice();
-                let t_shape = t_array.shape().to_vec();
-                let t_value_onnx = Value::from_array((t_shape, t_data))?;
-
-                // Run inference with 3 inputs: img_xs (fp16), coord (fp32), t (fp16)
-                session.run(ort::inputs![img_xs_value, coord_value, t_value_onnx])?
+                
+                // Create owned tensors using Tensor::from_array (ort 2.0 recommended API)
+                // This ensures proper shape inference and avoids "Unable to get shape" errors
+                let img_input = Tensor::from_array(
+                    img_xs_fp16
+                        .as_ref()
+                        .expect("fp16 tensor available")
+                        .to_owned()
+                )?;
+                let coord_input = Tensor::from_array(coord_array)?;  // already owned
+                let t_input = Tensor::from_array(t_array)?;  // already owned
+                
+                let outputs = session.run(ort::inputs![img_input, coord_input, t_input])?;
+                self.extract_padded_frame(&outputs[0], true)
             } else {
-                // ============================================================
-                // FP32 path: Generate everything in fp32 directly
-                // ============================================================
-
-                // Generate coord in fp32 directly
-                let coord_array = self.generate_coord(1, height, width, t_value)?;
-
-                // Create t tensor in fp32
+                // FP32 path: all tensors in fp32
                 let t_array = Array::from_shape_vec((1,), vec![t_value])?;
+                
+                // Create owned tensors using Tensor::from_array (ort 2.0 recommended API)
+                let img_input = Tensor::from_array(img_xs.to_owned())?;
+                let coord_input = Tensor::from_array(coord_array)?;  // already owned
+                let t_input = Tensor::from_array(t_array)?;  // already owned
+                
+                let outputs = session.run(ort::inputs![img_input, coord_input, t_input])?;
+                self.extract_padded_frame(&outputs[0], false)
+            }
+        };
 
-                // Create ONNX Value objects using tuple format
-                let img_xs_data = img_xs
-                    .as_slice()
-                    .expect("contiguous array")
-                    .to_vec()
-                    .into_boxed_slice();
-                let img_xs_shape = img_xs.shape().to_vec();
-                let img_xs_value = Value::from_array((img_xs_shape, img_xs_data))?;
-
-                let coord_data = coord_array
-                    .as_slice()
-                    .expect("contiguous array")
-                    .to_vec()
-                    .into_boxed_slice();
-                let coord_shape = coord_array.shape().to_vec();
-                let coord_value = Value::from_array((coord_shape, coord_data))?;
-
-                let t_data = t_array
-                    .as_slice()
-                    .expect("contiguous array")
-                    .to_vec()
-                    .into_boxed_slice();
-                let t_shape = t_array.shape().to_vec();
-                let t_value_onnx = Value::from_array((t_shape, t_data))?;
-
-                // Run inference with 3 inputs: img_xs, coord, t
-                // ds_factor is now fixed at 1.0 inside the model
-                session.run(ort::inputs![img_xs_value, coord_value, t_value_onnx])?
-            };
-
-            // Extract output tensor and convert back to [H, W, C] format
-            // Output shape is [1, C, H, W] (padded dimensions)
-            let output = &outputs[0];
-
-            // OPTIMIZATION: Reduce debug overhead
-            let padded_frame = if use_fp16 {
-                let (out_shape, out_data) = output.try_extract_tensor::<f16>()?;
-                let out_dims: Vec<usize> = out_shape.iter().map(|&x| x as usize).collect();
-                let output_array = Array::from_shape_vec(out_dims.as_slice(), out_data.to_vec())?;
-                let chw_4d = output_array.into_dimensionality::<Ix4>()?;
-                let chw = chw_4d.index_axis(Axis(0), 0);
-
-                // CRITICAL: permuted_axes returns non-contiguous view
-                // Must use as_standard_layout() to get contiguous HWC layout
-                let hwc_view = chw.permuted_axes([1, 2, 0]);
-                let hwc = hwc_view.as_standard_layout().into_owned();
-
-                hwc.mapv(|value| (value.to_f32() * 255.0).clamp(0.0, 255.0))
-            } else {
-                let (out_shape, out_data) = output.try_extract_tensor::<f32>()?;
-                let out_dims: Vec<usize> = out_shape.iter().map(|&x| x as usize).collect();
-                let output_array = Array::from_shape_vec(out_dims.as_slice(), out_data.to_vec())?;
-                let chw_4d = output_array.into_dimensionality::<Ix4>()?;
-                let chw = chw_4d.index_axis(Axis(0), 0);
-
-                // CRITICAL: permuted_axes returns non-contiguous view
-                // Must use as_standard_layout() to get contiguous HWC layout
-                let hwc_view = chw.permuted_axes([1, 2, 0]);
-                let hwc = hwc_view.as_standard_layout().into_owned();
-
-                hwc.mapv(|value| (value * 255.0).clamp(0.0, 255.0))
-            };
-
-            // Unpad the output frame back to original dimensions
+        for i in 0..num_interp {
+            let t_value = (i + 1) as f32 / (num_interp + 1) as f32;
+            let padded_frame = infer_frame(t_value)?;
             let result_frame =
                 self.unpad_frame(&padded_frame, pad_top, pad_left, orig_height, orig_width)?;
-
             result_frames.push(result_frame);
         }
 
@@ -1041,6 +944,27 @@ impl EnhanceOptions {
                 ..
             ])
             .to_owned())
+    }
+
+    fn extract_padded_frame(&self, output: &Value, use_fp16: bool) -> Result<Array<f32, Ix3>> {
+        if use_fp16 {
+            let output_array = output.try_extract_array::<f16>()?;
+            let chw_4d = output_array.into_owned().into_dimensionality::<Ix4>()?;
+            let hwc = Self::reshape_to_hwc(chw_4d);
+            Ok(hwc.mapv(|value| (value.to_f32() * 255.0).clamp(0.0, 255.0)))
+        } else {
+            let output_array = output.try_extract_array::<f32>()?;
+            let chw_4d = output_array.into_owned().into_dimensionality::<Ix4>()?;
+            let hwc = Self::reshape_to_hwc(chw_4d);
+            Ok(hwc.mapv(|value| (value * 255.0).clamp(0.0, 255.0)))
+        }
+    }
+
+    fn reshape_to_hwc<T: Copy>(array: Array<T, Ix4>) -> Array<T, Ix3> {
+        let chw = array.index_axis(Axis(0), 0);
+        chw.permuted_axes([1, 2, 0])
+            .as_standard_layout()
+            .to_owned()
     }
 
     /// Find VFI model file in workspace or model directory
@@ -1202,10 +1126,15 @@ impl EnhanceOptions {
             return Ok(frame.clone());
         }
 
-        let frame_u8 = frame.mapv(|v| v.clamp(0.0, 255.0) as u8).into_raw_vec();
-        let image =
-            ImageBuffer::<Rgb<u8>, _>::from_raw(current_w as u32, current_h as u32, frame_u8)
-                .ok_or_else(|| anyhow::anyhow!("Failed to create image buffer for resizing"))?;
+        let frame_u8 = frame
+            .mapv(|v| v.clamp(0.0, 255.0) as u8)
+            .into_raw_vec_and_offset().0;
+        let image = ImageBuffer::<Rgb<u8>, _>::from_raw(
+            current_w as u32,
+            current_h as u32,
+            frame_u8,
+        )
+        .ok_or_else(|| anyhow::anyhow!("Failed to create image buffer for resizing"))?;
 
         let resized = DynamicImage::ImageRgb8(image)
             .resize_exact(width as u32, height as u32, FilterType::Lanczos3)
@@ -1438,7 +1367,7 @@ fn save_frame(frame: &Array<f32, Ix3>, output_dir: &PathBuf, frame_idx: usize) -
 
     // Convert f32 [0, 255] to contiguous u8 buffer in HWC (row-major) order
     let frame_u8 = frame_owned.mapv(|x| x.clamp(0.0, 255.0) as u8);
-    let rgb_buffer = frame_u8.into_raw_vec();
+    let rgb_buffer = frame_u8.into_raw_vec_and_offset().0;
 
     let output_path = output_dir.join(format!("{}.png", frame_idx));
     image::save_buffer(
