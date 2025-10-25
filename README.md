@@ -11,7 +11,7 @@ A video enhancement tool powered by ONNX Runtime, supporting frame interpolation
 - **Hardware Acceleration**: 
   - macOS: CoreML acceleration
   - Linux: CUDA / TensorRT acceleration
-  - Windows: DirectML / CUDA acceleration
+  - Windows: CUDA / TensorRT acceleration
 - **NTSC Video Processing**: Deinterlacing support for interlaced video content
 
 ## Build Requirements

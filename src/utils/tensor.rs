@@ -6,7 +6,7 @@ use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgb};
 use ndarray::{s, Array, Axis, CowArray, Ix3, Ix4};
 use ndarray::stack;
-use ort::{Environment, GraphOptimizationLevel, Session, SessionBuilder, Value};
+use ort::{Environment, GraphOptimizationLevel, Session, SessionBuilder, Value, execution_providers::ExecutionProvider};
 use scopeguard::defer;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -358,24 +358,7 @@ impl EnhanceOptions {
             println!("Loading VFI model: {}", model_path.display());
         }
 
-        let providers = select_execution_providers(self.silent);
-
-        // Optimize ONNX Runtime for maximum CPU utilization
-        let num_threads_intra = thread::available_parallelism()
-            .map(|n| n.get() as i16)
-            .unwrap_or(4);
-
-        let num_threads_inter = if num_threads_intra > 8 {
-            4
-        } else {
-            2
-        };
-
-        let _session = SessionBuilder::new(onnx_env)?
-            .with_execution_providers(&providers)?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(num_threads_intra)?  // Intra-op parallelism (within single op)
-            .with_inter_threads(num_threads_inter)?  // Inter-op parallelism (between ops)
+        let _session = new_builder(onnx_env, self.silent)?
             .with_model_from_file(&model_path)?;
 
         if !self.silent {
@@ -538,27 +521,6 @@ impl EnhanceOptions {
             (target_scale.log(MODEL_SCALE).ceil() as usize).max(1)
         };
 
-        if !self.silent {
-            println!(
-                "Target upscale: {:.2}x ({}x{} → {}x{})",
-                target_scale,
-                self.upscale.old_width,
-                self.upscale.old_height,
-                self.upscale.width,
-                self.upscale.height
-            );
-            if num_upscale_passes == 0 {
-                println!("Target is smaller than input, will only resize");
-            } else if num_upscale_passes > 1 {
-                println!(
-                    "Will apply {}x upscaling {} times (total {}x), then resize to target resolution",
-                    MODEL_SCALE as u32,
-                    num_upscale_passes,
-                    MODEL_SCALE.powi(num_upscale_passes as i32) as u32
-                );
-            }
-        }
-
         // Determine model filename and whether it uses FP16
         let (model_filename, use_fp16) = match self.upscale_model {
             UpscaleModel::RealESRAnimeVideoV3 => ("realesr-animevideov3_fp32.onnx", false),
@@ -577,28 +539,42 @@ impl EnhanceOptions {
             println!("Loading upscaler: {}", model_path.display());
         }
 
-        let providers = select_execution_providers(self.silent);
-
-        // Optimize ONNX Runtime for maximum CPU utilization
-        let num_threads_intra = thread::available_parallelism()
-            .map(|n| n.get() as i16)
-            .unwrap_or(4);
-
-        let num_threads_inter = if num_threads_intra > 8 {
-            4
-        } else {
-            2
-        };
-
-        let session = SessionBuilder::new(onnx_env)?
-            .with_execution_providers(&providers)?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(num_threads_intra)?
-            .with_inter_threads(num_threads_inter)?
+        let session = new_builder(&onnx_env, self.silent)?
             .with_model_from_file(&model_path)?;
 
         if !self.silent {
             println!("Upscaler model loaded successfully");
+            println!(
+                "Model type: {}",
+                match self.upscale_model {
+                    UpscaleModel::RealESRAnimeVideoV3 => "Real-ESRAnimeVideoV3",
+                    UpscaleModel::RealESRAnimeVideoV3Hf => "Real-ESRAnimeVideoV3 (Half-Precision)",
+                    UpscaleModel::RealESRGeneralx4v3 => "Real-ESRGeneralx4v3",
+                    UpscaleModel::RealESRGeneralx4v3Hf => "Real-ESRGeneralx4v3 (Half-Precision)",
+                    UpscaleModel::RealESRGANx4Plus => "Real-ESRGANx4Plus",
+                    UpscaleModel::RealESRGANx4PlusHf => "Real-ESRGANx4Plus (Half-Precision)",
+                    UpscaleModel::RealESRGANx4PlusAnime => "Real-ESRGANx4PlusAnime",
+                    UpscaleModel::RealESRGANx4PlusAnimeHf => "Real-ESRGANx4PlusAnime (Half-Precision)",
+                }
+            );
+            println!(
+                "Processing video upscaling from {}x{} to {}x{}",
+                self.upscale.old_width,
+                self.upscale.old_height,
+                self.upscale.width,
+                self.upscale.height
+            );
+            
+            if num_upscale_passes == 0 {
+                println!("Target is smaller than input, will only resize");
+            } else if num_upscale_passes > 1 {
+                println!(
+                    "Will apply {}x upscaling {} times (total {}x), then resize to target resolution",
+                    MODEL_SCALE as u32,
+                    num_upscale_passes,
+                    MODEL_SCALE.powi(num_upscale_passes as i32) as u32
+                );
+            }
         }
 
         // Collect all valid frame files first
@@ -1256,17 +1232,32 @@ fn human(bytes: usize) -> String {
     }
 }
 
-fn select_execution_providers(silent: bool) -> Vec<ort::execution_providers::ExecutionProvider> {
+fn new_builder(env: &Arc<Environment>, silent: bool) -> Result<SessionBuilder> {
+    // Optimize ONNX Runtime for maximum CPU utilization
+    let num_threads_intra = thread::available_parallelism()
+        .map(|n| n.get() as i16)
+        .unwrap_or(4);
+
+    let num_threads_inter = if num_threads_intra > 8 {
+        4
+    } else {
+        2
+    };
+
+    let builder = SessionBuilder::new(env)?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_intra_threads(num_threads_intra)?
+        .with_inter_threads(num_threads_inter)?;
     let mut providers = Vec::new();
 
     #[cfg(target_os = "macos")]
     {
-        let coreml = ort::execution_providers::ExecutionProvider::CoreML(
+        let coreml = ExecutionProvider::CoreML(
             ort::execution_providers::CoreMLExecutionProviderOptions::default(),
         );
         if coreml.is_available() {
             if !silent {
-                println!("Use CoreML execution provider");
+                println!("CoreML execution provider is available");
             }
             providers.push(coreml);
         }
@@ -1274,66 +1265,145 @@ fn select_execution_providers(silent: bool) -> Vec<ort::execution_providers::Exe
 
     #[cfg(target_os = "windows")]
     {
-        let tensorrt = ort::execution_providers::ExecutionProvider::TensorRT(
+        let tensorrt = ExecutionProvider::TensorRT(
             ort::execution_providers::TensorRTExecutionProviderOptions::default(),
         );
         if tensorrt.is_available() {
             if !silent {
-                println!("Use TensorRT execution provider");
+                println!("TensorRT execution provider is available");
             }
             providers.push(tensorrt);
         }
 
-        let cuda = ort::execution_providers::ExecutionProvider::CUDA(
+        let cuda = ExecutionProvider::CUDA(
             ort::execution_providers::CUDAExecutionProviderOptions::default(),
         );
         if cuda.is_available() {
             if !silent {
-                println!("Use CUDA execution provider");
+                println!("CUDA execution provider is available");
             }
             providers.push(cuda);
-        }
-
-        let dml = ort::execution_providers::ExecutionProvider::DirectML(
-            ort::execution_providers::DirectMLExecutionProviderOptions::default(),
-        );
-        if dml.is_available() {
-            if !silent {
-                println!("Use DirectML execution provider");
-            }
-            providers.push(dml);
         }
     }
 
     #[cfg(target_os = "linux")]
     {
-        let tensorrt = ort::execution_providers::ExecutionProvider::TensorRT(
+        let tensorrt = ExecutionProvider::TensorRT(
             ort::execution_providers::TensorRTExecutionProviderOptions::default(),
         );
         if tensorrt.is_available() {
             if !silent {
-                println!("Use TensorRT execution provider");
+                println!("TensorRT execution provider is available");
             }
             providers.push(tensorrt);
         }
 
-        let cuda = ort::execution_providers::ExecutionProvider::CUDA(
+        let cuda = ExecutionProvider::CUDA(
             ort::execution_providers::CUDAExecutionProviderOptions::default(),
         );
         if cuda.is_available() {
             if !silent {
-                println!("Use CUDA execution provider");
+                println!("CUDA execution provider is available");
             }
             providers.push(cuda);
         }
     }
 
-    if providers.is_empty() {
-        providers.push(ort::execution_providers::ExecutionProvider::CPU(
-            ort::execution_providers::CPUExecutionProviderOptions::default(),
-        ));
+    // Test each provider individually and collect successful ones
+    let mut successful_providers = Vec::new();
+    for provider in providers {
+        // Create a temporary builder to test this provider
+        let test_builder = SessionBuilder::new(env)?
+            .with_optimization_level(GraphOptimizationLevel::Level3)?
+            .with_intra_threads(num_threads_intra)?
+            .with_inter_threads(num_threads_inter)?;
+        
+        match test_builder.with_execution_providers(vec![provider.clone()]) {
+            Ok(_) => {
+                if !silent {
+                    let provider_name = match &provider {
+                        ExecutionProvider::CPU(_) => "CPU",
+                        ExecutionProvider::CUDA(_) => "CUDA", 
+                        ExecutionProvider::TensorRT(_) => "TensorRT",
+                        #[cfg(target_os = "macos")]
+                        ExecutionProvider::CoreML(_) => "CoreML",
+                        #[cfg(target_os = "windows")]
+                        ExecutionProvider::DirectML(_) => "DirectML",
+                        _ => "Unknown",
+                    };
+                    println!("✓ {} execution provider test passed", provider_name);
+                }
+                successful_providers.push(provider);
+            }
+            Err(e) => {
+                let provider_name = match &provider {
+                    ExecutionProvider::CPU(_) => "CPU",
+                    ExecutionProvider::CUDA(_) => "CUDA",
+                    ExecutionProvider::TensorRT(_) => "TensorRT", 
+                    #[cfg(target_os = "macos")]
+                    ExecutionProvider::CoreML(_) => "CoreML",
+                    #[cfg(target_os = "windows")]
+                    ExecutionProvider::DirectML(_) => "DirectML",
+                    _ => "Unknown",
+                };
+                if !silent {
+                    eprintln!("✗ {} execution provider failed: {}", provider_name, e);
+                    match &provider {
+                        ExecutionProvider::CUDA(_) => {
+                            eprintln!("  → Check if NVIDIA GPU drivers and CUDA are properly installed");
+                            eprintln!("  → Verify CUDA version compatibility with ONNX Runtime");
+                        }
+                        ExecutionProvider::TensorRT(_) => {
+                            eprintln!("  → Ensure TensorRT is installed and compatible");
+                            eprintln!("  → Check NVIDIA driver version");
+                        }
+                        #[cfg(target_os = "windows")]
+                        ExecutionProvider::DirectML(_) => {
+                            eprintln!("  → Verify Windows version supports DirectML");
+                            eprintln!("  → Check if compatible GPU drivers are installed");
+                        }
+                        #[cfg(target_os = "macos")]
+                        ExecutionProvider::CoreML(_) => {
+                            eprintln!("  → Ensure running on macOS with CoreML support");
+                            eprintln!("  → Check macOS version compatibility");
+                        }
+                        _ => {}
+                    }
+                    eprintln!("  → Skipping this provider and continuing...");
+                }
+            }
+        }
     }
-    providers
+    
+    // Register all successful providers at once
+    let final_builder = if !successful_providers.is_empty() {
+        match builder.with_execution_providers(successful_providers.clone()) {
+            Ok(new_builder) => {
+                if !silent {
+                    println!("✓ Successfully registered {} execution provider(s)", successful_providers.len());
+                }
+                new_builder
+            }
+            Err(e) => {
+                if !silent {
+                    eprintln!("✗ Failed to register execution providers collectively: {}", e);
+                    eprintln!("  → Falling back to CPU-only execution");
+                }
+                // If registration fails, create a new builder without providers
+                SessionBuilder::new(env)?
+                    .with_optimization_level(GraphOptimizationLevel::Level3)?
+                    .with_intra_threads(num_threads_intra)?
+                    .with_inter_threads(num_threads_inter)?
+            }
+        }
+    } else {
+        if !silent {
+            println!("ℹ No hardware acceleration providers available, using CPU execution");
+        }
+        builder
+    };
+    
+    Ok(final_builder)
 }
 
 /// Load a single frame from disk into memory as ndarray [H, W, C] with f32 values [0, 255]

@@ -20,7 +20,7 @@ ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "hal
 ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "coreml"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "directml", "cuda"] }
+ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "cuda", "tensorrt"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "cuda", "tensorrt"] }

@@ -11,7 +11,7 @@
 - **多平台加速**: 
   - macOS: CoreML 加速
   - Linux: CUDA / TensorRT 加速
-  - Windows: DirectML / CUDA 加速
+  - Windows: CUDA / TensorRT acceleration
 - **NTSC 视频处理**: 支持隔行扫描视频的去隔行处理
 
 ## 编译环境要求
