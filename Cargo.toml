@@ -14,13 +14,13 @@ scopeguard = "1.2"
 tempfile = "3.23.0"
 image = { version = "0.25", features = ["png", "jpeg"] }
 ndarray = "0.15.6"
-ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half"] }
+ort = { version = "2.0.0-rc.10", features = ["download-binaries", "copy-dylibs", "half"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "coreml"] }
+ort = { version = "2.0.0-rc.10", features = ["download-binaries", "copy-dylibs", "half", "coreml"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "cuda", "tensorrt"] }
+ort = { version = "2.0.0-rc.10", features = ["download-binaries", "copy-dylibs", "half", "cuda", "tensorrt"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "cuda", "tensorrt"] }
+ort = { version = "2.0.0-rc.10", features = ["download-binaries", "copy-dylibs", "half", "cuda", "tensorrt"] }

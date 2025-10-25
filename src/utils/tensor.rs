@@ -1,17 +1,23 @@
 use crate::utils::ffmpeg::ArchiveOptions;
 use crate::utils::ffmpeg::{ExtractOptions, FFProbe};
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use half::f16;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgb};
-use ndarray::{s, Array, Axis, CowArray, Ix3, Ix4};
 use ndarray::stack;
-use ort::{Environment, GraphOptimizationLevel, Session, SessionBuilder, Value, execution_providers::ExecutionProvider};
+use ndarray::{Array, Axis, Ix3, Ix4, s};
+#[cfg(target_os = "macos")]
+use ort::execution_providers::CoreMLExecutionProvider;
+use ort::execution_providers::ExecutionProvider;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use ort::execution_providers::{CUDAExecutionProvider, TensorRTExecutionProvider};
+use ort::session::builder::GraphOptimizationLevel;
+use ort::{session::Session, value::Value};
 use scopeguard::defer;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::sync::Arc;
 use tempfile::TempDir;
 
 pub fn enhance(
@@ -307,14 +313,9 @@ impl EnhanceOptions {
         // Rename extracted frames directory to avoid conflicts
         fs::rename(tempdir_frames.as_path(), tempdir_orig_frames.as_path())?;
 
-        // Create ONNX session with optimizations
-        let environment = Environment::builder()
-            .with_name("pixworker")
-            .build()?
-            .into_arc();
-
-        self.process_vfi(&environment, &tempdir_orig_frames, &tempdir_vfi)?;
-        self.process_upscale(&environment, &tempdir_vfi, &tempdir_frames)?;
+        // Process VFI and upscaling
+        self.process_vfi(&tempdir_orig_frames, &tempdir_vfi)?;
+        self.process_upscale(&tempdir_vfi, &tempdir_frames)?;
 
         // Encode all frames (original + interpolated) to output video
         let archive = ArchiveOptions::new(
@@ -329,7 +330,7 @@ impl EnhanceOptions {
         Ok(())
     }
 
-    fn process_vfi(&self, onnx_env: &Arc<Environment>, input_dir: &Path, output_dir: &Path) -> Result<()> {
+    fn process_vfi(&self, input_dir: &Path, output_dir: &Path) -> Result<()> {
         if self.vfi.fps <= self.vfi.old_fps {
             // no need to interpolate, just copy input to output
             fs::create_dir_all(output_dir)?;
@@ -358,8 +359,8 @@ impl EnhanceOptions {
             println!("Loading VFI model: {}", model_path.display());
         }
 
-        let _session = new_builder(onnx_env, self.silent)?
-            .with_model_from_file(&model_path)?;
+        let mut _session = new_session(&model_path, self.silent)?;
+        let session = &mut _session;
 
         if !self.silent {
             println!("VFI model loaded successfully");
@@ -445,15 +446,12 @@ impl EnhanceOptions {
         fs::create_dir_all(&output_path)?;
 
         // Process frame interpolation in streaming fashion
-        let session = &_session;
         let mut output_frame_idx = 0;
 
         for i in 0..frame_files.len() - 1 {
             // Load only current frame pair (memory efficient)
-            let frame_start: ndarray::ArrayBase<
-                ndarray::OwnedRepr<f32>,
-                ndarray::Dim<[usize; 3]>,
-            > = load_frame(&frame_files[i])?;
+            let frame_start: ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::Dim<[usize; 3]>> =
+                load_frame(&frame_files[i])?;
             let frame_end = load_frame(&frame_files[i + 1])?;
 
             if !self.silent && i % 10 == 0 {
@@ -493,7 +491,7 @@ impl EnhanceOptions {
         Ok(())
     }
 
-    fn process_upscale(&self, onnx_env: &Arc<Environment>, input_dir: &Path, output_dir: &Path) -> Result<()> {
+    fn process_upscale(&self, input_dir: &Path, output_dir: &Path) -> Result<()> {
         if !input_dir.exists() {
             bail!("Upscale input directory does not exist");
         }
@@ -502,10 +500,10 @@ impl EnhanceOptions {
 
         // All Real-ESRGAN models are 4x upscale models
         const MODEL_SCALE: f64 = 4.0;
-        
+
         // Calculate upscale factor needed
         let target_scale = self.upscale.width as f64 / self.upscale.old_width as f64;
-        
+
         // Determine how many times we need to apply 4x upscaling
         // For target_scale <= 4: apply once, then downscale if needed
         // For 4 < target_scale <= 16: apply twice (4x then 4x = 16x), then downscale
@@ -539,11 +537,9 @@ impl EnhanceOptions {
             println!("Loading upscaler: {}", model_path.display());
         }
 
-        let session = new_builder(&onnx_env, self.silent)?
-            .with_model_from_file(&model_path)?;
+        let mut session = new_session(&model_path, self.silent)?;
 
         if !self.silent {
-            println!("Upscaler model loaded successfully");
             println!(
                 "Model type: {}",
                 match self.upscale_model {
@@ -554,7 +550,8 @@ impl EnhanceOptions {
                     UpscaleModel::RealESRGANx4Plus => "Real-ESRGANx4Plus",
                     UpscaleModel::RealESRGANx4PlusHf => "Real-ESRGANx4Plus (Half-Precision)",
                     UpscaleModel::RealESRGANx4PlusAnime => "Real-ESRGANx4PlusAnime",
-                    UpscaleModel::RealESRGANx4PlusAnimeHf => "Real-ESRGANx4PlusAnime (Half-Precision)",
+                    UpscaleModel::RealESRGANx4PlusAnimeHf =>
+                        "Real-ESRGANx4PlusAnime (Half-Precision)",
                 }
             );
             println!(
@@ -564,7 +561,7 @@ impl EnhanceOptions {
                 self.upscale.width,
                 self.upscale.height
             );
-            
+
             if num_upscale_passes == 0 {
                 println!("Target is smaller than input, will only resize");
             } else if num_upscale_passes > 1 {
@@ -586,7 +583,9 @@ impl EnhanceOptions {
                 continue;
             }
 
-            let Some(ext) = path.extension() else { continue; };
+            let Some(ext) = path.extension() else {
+                continue;
+            };
             if ext == "png" {
                 frame_files.push(path);
             }
@@ -617,8 +616,6 @@ impl EnhanceOptions {
             println!("Processing {} frames for upscaling...", frame_files.len());
         }
 
-        let allocator = session.allocator();
-
         for (idx, path) in frame_files.iter().enumerate() {
             if !self.silent && idx % 10 == 0 {
                 println!("Upscaling frame {}/{}", idx + 1, frame_files.len());
@@ -626,7 +623,7 @@ impl EnhanceOptions {
 
             // Load frame [H, W, C] with values in [0, 255]
             let mut current_frame = load_frame(&path)?;
-            
+
             // Apply upscaling multiple times if needed
             // Each pass applies 4x upscaling, so 2 passes = 16x total
             for pass in 0..num_upscale_passes {
@@ -637,15 +634,17 @@ impl EnhanceOptions {
                         "  Pass {}/{}: upscaling {}x{} → {}x{}",
                         pass + 1,
                         num_upscale_passes,
-                        w, h,
-                        w * 4, h * 4
+                        w,
+                        h,
+                        w * 4,
+                        h * 4
                     );
                 }
-                
+
                 // Convert to CHW format [C, H, W] and normalize to [0, 1]
                 // Real-ESRGAN expects normalized input in [0, 1] range
                 let chw = self.hwc_to_chw(&current_frame)? / 255.0;
-                
+
                 // Add batch dimension: [1, C, H, W]
                 let chw_batch = chw.view().insert_axis(Axis(0));
 
@@ -654,7 +653,7 @@ impl EnhanceOptions {
                     self.upscale_model,
                     UpscaleModel::RealESRGeneralx4v3 | UpscaleModel::RealESRGeneralx4v3Hf
                 );
-                
+
                 // Denoise strength: 1.0 favors detail, 0.0 favors denoise
                 let denoise_strength = 0.1f32; // Balanced default
 
@@ -662,61 +661,71 @@ impl EnhanceOptions {
                 current_frame = if use_fp16 {
                     // FP16 path: convert input to fp16, run inference, convert output back
                     let chw_fp16 = chw_batch.mapv(|v| f16::from_f32(v));
-                    let input_tensor = CowArray::from(chw_fp16.into_dyn());
-                    
-                    // Prepare denoise tensor outside of conditional to avoid lifetime issues
-                    let denoise_array = Array::from_shape_vec((1,), vec![f16::from_f32(denoise_strength)])?;
-                    let denoise_tensor = CowArray::from(denoise_array.into_dyn());
-                    
-                    let img_value = Value::from_array(allocator, &input_tensor)?;
-                    let denoise_value = Value::from_array(allocator, &denoise_tensor)?;
+                    let shape = chw_fp16.shape().to_vec();
+                    let data = chw_fp16.into_raw_vec().into_boxed_slice();
+
+                    // Prepare denoise tensor
+                    let denoise_data = vec![f16::from_f32(denoise_strength)].into_boxed_slice();
+
+                    let img_value = Value::from_array((shape, data))?;
+                    let denoise_value = Value::from_array((vec![1], denoise_data))?;
 
                     let outputs = if supports_denoise {
-                        session.run(vec![img_value, denoise_value])?
+                        session.run(ort::inputs![img_value, denoise_value])?
                     } else {
-                        session.run(vec![img_value])?
+                        session.run(ort::inputs![img_value])?
                     };
-                    
+
                     let output = &outputs[0];
-                    
+
                     // Extract and process FP16 output directly to avoid extra conversions
-                    let output_fp16 = output.try_extract::<f16>()?;
-                    let output_4d = output_fp16.view().to_owned().into_dimensionality::<Ix4>()?;
+                    let output_fp16 = output.try_extract_tensor::<f16>()?;
+                    let out_dims: Vec<usize> = output_fp16.0.iter().map(|&x| x as usize).collect();
+                    let output_4d =
+                        Array::from_shape_vec(out_dims.as_slice(), output_fp16.1.to_vec())?
+                            .into_dimensionality::<Ix4>()?;
                     let output_3d = output_4d.index_axis(Axis(0), 0);
-                    let hwc = output_3d.permuted_axes([1, 2, 0]).as_standard_layout().to_owned();
-                    
+                    let hwc = output_3d
+                        .permuted_axes([1, 2, 0])
+                        .as_standard_layout()
+                        .to_owned();
+
                     // Convert fp16 to f32 and scale to [0, 255] in one operation
                     hwc.mapv(|v| (v.to_f32() * 255.0).clamp(0.0, 255.0))
                 } else {
                     // FP32 path: no type conversion needed
-                    let input_tensor = CowArray::from(chw_batch.to_owned().into_dyn());
-                    
-                    // Prepare denoise tensor outside of conditional to avoid lifetime issues
-                    let denoise_array = Array::from_shape_vec((1,), vec![denoise_strength])?;
-                    let denoise_tensor = CowArray::from(denoise_array.into_dyn());
-                    
-                    let img_value = Value::from_array(allocator, &input_tensor)?;
-                    let denoise_value = Value::from_array(allocator, &denoise_tensor)?;
+                    let shape = chw_batch.shape().to_vec();
+                    let data = chw_batch.to_owned().into_raw_vec().into_boxed_slice();
+
+                    // Prepare denoise tensor
+                    let denoise_data = vec![denoise_strength].into_boxed_slice();
+
+                    let img_value = Value::from_array((shape, data))?;
+                    let denoise_value = Value::from_array((vec![1], denoise_data))?;
 
                     let outputs = if supports_denoise {
-                        session.run(vec![img_value, denoise_value])?
+                        session.run(ort::inputs![img_value, denoise_value])?
                     } else {
-                        session.run(vec![img_value])?
+                        session.run(ort::inputs![img_value])?
                     };
 
                     let output = &outputs[0];
-                    let output_fp32 = output.try_extract::<f32>()?;
-                    
-                    // Process output directly
-                    let output_4d = output_fp32.view().to_owned().into_dimensionality::<Ix4>()?;
+                    let output_fp32 = output.try_extract_tensor::<f32>()?;
+                    let out_dims: Vec<usize> = output_fp32.0.iter().map(|&x| x as usize).collect();
+                    let output_4d =
+                        Array::from_shape_vec(out_dims.as_slice(), output_fp32.1.to_vec())?
+                            .into_dimensionality::<Ix4>()?;
                     let output_3d = output_4d.index_axis(Axis(0), 0);
-                    let hwc = output_3d.permuted_axes([1, 2, 0]).as_standard_layout().to_owned();
-                    
+                    let hwc = output_3d
+                        .permuted_axes([1, 2, 0])
+                        .as_standard_layout()
+                        .to_owned();
+
                     // Scale to [0, 255] directly
                     hwc.mapv(|v| (v * 255.0).clamp(0.0, 255.0))
                 };
             }
-            
+
             // Final resize to exact target dimensions
             let final_frame = self.resize_to_target(
                 &current_frame,
@@ -728,7 +737,10 @@ impl EnhanceOptions {
         }
 
         if !self.silent {
-            println!("Upscaling complete! Processed {} frames.", frame_files.len());
+            println!(
+                "Upscaling complete! Processed {} frames.",
+                frame_files.len()
+            );
         }
 
         Ok(())
@@ -746,7 +758,7 @@ impl EnhanceOptions {
     /// Vector of interpolated frames as ndarray [H, W, C], values [0, 255]
     fn interpolate_frames(
         &self,
-        session: &Session,
+        session: &mut Session,
         frame0: &Array<f32, Ix3>,
         frame1: &Array<f32, Ix3>,
         num_interp: usize,
@@ -801,7 +813,6 @@ impl EnhanceOptions {
 
         // Generate all interpolated frames
         let mut result_frames = Vec::with_capacity(num_interp);
-        let allocator = session.allocator();
 
         for i in 0..num_interp {
             // Calculate time value for this interpolation
@@ -827,24 +838,35 @@ impl EnhanceOptions {
                 // Create t tensor in fp16
                 let t_array = Array::from_shape_vec((1,), vec![f16::from_f32(t_value)])?;
 
-                // Create CowArray wrappers
-                let img_xs_cow = CowArray::from(
-                    img_xs_fp16
-                        .as_ref()
-                        .expect("fp16 tensor available")
-                        .view()
-                        .into_dyn(),
-                );
-                let coord_cow = CowArray::from(coord_array.into_dyn());
-                let t_cow = CowArray::from(t_array.into_dyn());
+                // Create ONNX Value objects using tuple format
+                let img_xs_data = img_xs_fp16
+                    .as_ref()
+                    .expect("fp16 tensor available")
+                    .as_slice()
+                    .expect("contiguous array")
+                    .to_vec()
+                    .into_boxed_slice();
+                let img_xs_shape = img_xs_fp16.as_ref().unwrap().shape().to_vec();
+                let img_xs_value = Value::from_array((img_xs_shape, img_xs_data))?;
 
-                // Create ONNX Value objects
-                let img_xs_value = Value::from_array(allocator, &img_xs_cow)?;
-                let coord_value = Value::from_array(allocator, &coord_cow)?;
-                let t_value_onnx = Value::from_array(allocator, &t_cow)?;
+                let coord_data = coord_array
+                    .as_slice()
+                    .expect("contiguous array")
+                    .to_vec()
+                    .into_boxed_slice();
+                let coord_shape = coord_array.shape().to_vec();
+                let coord_value = Value::from_array((coord_shape, coord_data))?;
+
+                let t_data = t_array
+                    .as_slice()
+                    .expect("contiguous array")
+                    .to_vec()
+                    .into_boxed_slice();
+                let t_shape = t_array.shape().to_vec();
+                let t_value_onnx = Value::from_array((t_shape, t_data))?;
 
                 // Run inference with 3 inputs: img_xs (fp16), coord (fp32), t (fp16)
-                session.run(vec![img_xs_value, coord_value, t_value_onnx])?
+                session.run(ort::inputs![img_xs_value, coord_value, t_value_onnx])?
             } else {
                 // ============================================================
                 // FP32 path: Generate everything in fp32 directly
@@ -856,19 +878,34 @@ impl EnhanceOptions {
                 // Create t tensor in fp32
                 let t_array = Array::from_shape_vec((1,), vec![t_value])?;
 
-                // Create CowArray wrappers
-                let img_xs_cow = CowArray::from(img_xs.view().into_dyn());
-                let coord_cow = CowArray::from(coord_array.into_dyn());
-                let t_cow = CowArray::from(t_array.into_dyn());
+                // Create ONNX Value objects using tuple format
+                let img_xs_data = img_xs
+                    .as_slice()
+                    .expect("contiguous array")
+                    .to_vec()
+                    .into_boxed_slice();
+                let img_xs_shape = img_xs.shape().to_vec();
+                let img_xs_value = Value::from_array((img_xs_shape, img_xs_data))?;
 
-                // Create ONNX Value objects
-                let img_xs_value = Value::from_array(allocator, &img_xs_cow)?;
-                let coord_value = Value::from_array(allocator, &coord_cow)?;
-                let t_value_onnx = Value::from_array(allocator, &t_cow)?;
+                let coord_data = coord_array
+                    .as_slice()
+                    .expect("contiguous array")
+                    .to_vec()
+                    .into_boxed_slice();
+                let coord_shape = coord_array.shape().to_vec();
+                let coord_value = Value::from_array((coord_shape, coord_data))?;
+
+                let t_data = t_array
+                    .as_slice()
+                    .expect("contiguous array")
+                    .to_vec()
+                    .into_boxed_slice();
+                let t_shape = t_array.shape().to_vec();
+                let t_value_onnx = Value::from_array((t_shape, t_data))?;
 
                 // Run inference with 3 inputs: img_xs, coord, t
                 // ds_factor is now fixed at 1.0 inside the model
-                session.run(vec![img_xs_value, coord_value, t_value_onnx])?
+                session.run(ort::inputs![img_xs_value, coord_value, t_value_onnx])?
             };
 
             // Extract output tensor and convert back to [H, W, C] format
@@ -877,28 +914,30 @@ impl EnhanceOptions {
 
             // OPTIMIZATION: Reduce debug overhead
             let padded_frame = if use_fp16 {
-                let output_array = output.try_extract::<f16>()?;
-                let output_owned = output_array.view().to_owned();
-                let chw_4d = output_owned.into_dimensionality::<Ix4>()?;
+                let (out_shape, out_data) = output.try_extract_tensor::<f16>()?;
+                let out_dims: Vec<usize> = out_shape.iter().map(|&x| x as usize).collect();
+                let output_array = Array::from_shape_vec(out_dims.as_slice(), out_data.to_vec())?;
+                let chw_4d = output_array.into_dimensionality::<Ix4>()?;
                 let chw = chw_4d.index_axis(Axis(0), 0);
-                
+
                 // CRITICAL: permuted_axes returns non-contiguous view
                 // Must use as_standard_layout() to get contiguous HWC layout
                 let hwc_view = chw.permuted_axes([1, 2, 0]);
                 let hwc = hwc_view.as_standard_layout().into_owned();
-                
+
                 hwc.mapv(|value| (value.to_f32() * 255.0).clamp(0.0, 255.0))
             } else {
-                let output_array = output.try_extract::<f32>()?;
-                let output_owned = output_array.view().to_owned();
-                let chw_4d = output_owned.into_dimensionality::<Ix4>()?;
+                let (out_shape, out_data) = output.try_extract_tensor::<f32>()?;
+                let out_dims: Vec<usize> = out_shape.iter().map(|&x| x as usize).collect();
+                let output_array = Array::from_shape_vec(out_dims.as_slice(), out_data.to_vec())?;
+                let chw_4d = output_array.into_dimensionality::<Ix4>()?;
                 let chw = chw_4d.index_axis(Axis(0), 0);
-                
+
                 // CRITICAL: permuted_axes returns non-contiguous view
                 // Must use as_standard_layout() to get contiguous HWC layout
                 let hwc_view = chw.permuted_axes([1, 2, 0]);
                 let hwc = hwc_view.as_standard_layout().into_owned();
-                
+
                 hwc.mapv(|value| (value * 255.0).clamp(0.0, 255.0))
             };
 
@@ -937,9 +976,9 @@ impl EnhanceOptions {
         Ok(Array::from_shape_fn(
             (batch_size, 1, height, width, 3),
             |(_, _, h, w, component)| match component {
-                0 => t_value,  // t: raw value in [0, 1], NOT mapped to [-1, 1]
-                1 => -1.0 + 2.0 * ((h as f32 + 0.5) / height as f32),  // y (h)
-                2 => -1.0 + 2.0 * ((w as f32 + 0.5) / width as f32),   // x (w)
+                0 => t_value, // t: raw value in [0, 1], NOT mapped to [-1, 1]
+                1 => -1.0 + 2.0 * ((h as f32 + 0.5) / height as f32), // y (h)
+                2 => -1.0 + 2.0 * ((w as f32 + 0.5) / width as f32), // x (w)
                 _ => unreachable!("coordinate component out of range"),
             },
         ))
@@ -962,25 +1001,28 @@ impl EnhanceOptions {
         let (height, width, channels) = frame.dim();
         let new_height = height + pad_top + pad_bottom;
         let new_width = width + pad_left + pad_right;
-        Ok(Array::from_shape_fn((new_height, new_width, channels), |(h, w, c)| {
-            let src_h = if h < pad_top {
-                0
-            } else if h >= pad_top + height {
-                height - 1
-            } else {
-                h - pad_top
-            };
+        Ok(Array::from_shape_fn(
+            (new_height, new_width, channels),
+            |(h, w, c)| {
+                let src_h = if h < pad_top {
+                    0
+                } else if h >= pad_top + height {
+                    height - 1
+                } else {
+                    h - pad_top
+                };
 
-            let src_w = if w < pad_left {
-                0
-            } else if w >= pad_left + width {
-                width - 1
-            } else {
-                w - pad_left
-            };
+                let src_w = if w < pad_left {
+                    0
+                } else if w >= pad_left + width {
+                    width - 1
+                } else {
+                    w - pad_left
+                };
 
-            frame[[src_h, src_w, c]]
-        }))
+                frame[[src_h, src_w, c]]
+            },
+        ))
     }
 
     /// Remove padding from a frame to restore original dimensions
@@ -992,15 +1034,13 @@ impl EnhanceOptions {
         orig_height: usize,
         orig_width: usize,
     ) -> Result<Array<f32, Ix3>> {
-        Ok(
-            padded_frame
-                .slice(s![
-                    pad_top..pad_top + orig_height,
-                    pad_left..pad_left + orig_width,
-                    ..
-                ])
-                .to_owned(),
-        )
+        Ok(padded_frame
+            .slice(s![
+                pad_top..pad_top + orig_height,
+                pad_left..pad_left + orig_width,
+                ..
+            ])
+            .to_owned())
     }
 
     /// Find VFI model file in workspace or model directory
@@ -1031,18 +1071,22 @@ impl EnhanceOptions {
             println!("  - Commercial products or services");
             println!("  - Any profit-generating activities");
             println!("\nFor commercial use, you must contact the contributors.");
-            println!("\nBy downloading this model, you agree to comply with the S-Lab License 1.0.");
+            println!(
+                "\nBy downloading this model, you agree to comply with the S-Lab License 1.0."
+            );
             println!("========================================\n");
-            
+
             print!("Do you agree to the license terms? (y/N): ");
-            std::io::Write::flush(&mut std::io::stdout())?;
-            
+            io::Write::flush(&mut io::stdout())?;
+
             let mut input = String::new();
-            std::io::stdin().read_line(&mut input)?;
+            io::stdin().read_line(&mut input)?;
             let input = input.trim().to_lowercase();
-            
+
             if input != "y" && input != "yes" {
-                bail!("Model download cancelled. You must agree to the license to use GIMM-VFI models.");
+                bail!(
+                    "Model download cancelled. You must agree to the license to use GIMM-VFI models."
+                );
             }
 
             // If not found, try download from huggingface.co
@@ -1089,7 +1133,9 @@ impl EnhanceOptions {
             // If not found, ask user to agree to license before downloading
             println!("\n=== Real-ESRGAN Model License Agreement ===");
             println!("The Real-ESRGAN model is licensed under BSD 3-Clause License.");
-            println!("License: https://raw.githubusercontent.com/xinntao/Real-ESRGAN/refs/heads/master/LICENSE");
+            println!(
+                "License: https://raw.githubusercontent.com/xinntao/Real-ESRGAN/refs/heads/master/LICENSE"
+            );
             println!("\nThis is a permissive open-source license that allows:");
             println!("  - Commercial use");
             println!("  - Modification");
@@ -1099,18 +1145,22 @@ impl EnhanceOptions {
             println!("  - Include the copyright notice");
             println!("  - Include the license text");
             println!("  - Not use author's name for endorsement");
-            println!("\nBy downloading this model, you agree to comply with the BSD 3-Clause License.");
+            println!(
+                "\nBy downloading this model, you agree to comply with the BSD 3-Clause License."
+            );
             println!("===========================================\n");
-            
+
             print!("Do you agree to the license terms? (y/N): ");
-            std::io::Write::flush(&mut std::io::stdout())?;
-            
+            io::Write::flush(&mut io::stdout())?;
+
             let mut input = String::new();
-            std::io::stdin().read_line(&mut input)?;
+            io::stdin().read_line(&mut input)?;
             let input = input.trim().to_lowercase();
-            
+
             if input != "y" && input != "yes" {
-                bail!("Model download cancelled. You must agree to the license to use Real-ESRGAN models.");
+                bail!(
+                    "Model download cancelled. You must agree to the license to use Real-ESRGAN models."
+                );
             }
 
             // If not found, try download from huggingface.co
@@ -1152,15 +1202,10 @@ impl EnhanceOptions {
             return Ok(frame.clone());
         }
 
-        let frame_u8 = frame
-            .mapv(|v| v.clamp(0.0, 255.0) as u8)
-            .into_raw_vec();
-        let image = ImageBuffer::<Rgb<u8>, _>::from_raw(
-            current_w as u32,
-            current_h as u32,
-            frame_u8,
-        )
-        .ok_or_else(|| anyhow::anyhow!("Failed to create image buffer for resizing"))?;
+        let frame_u8 = frame.mapv(|v| v.clamp(0.0, 255.0) as u8).into_raw_vec();
+        let image =
+            ImageBuffer::<Rgb<u8>, _>::from_raw(current_w as u32, current_h as u32, frame_u8)
+                .ok_or_else(|| anyhow::anyhow!("Failed to create image buffer for resizing"))?;
 
         let resized = DynamicImage::ImageRgb8(image)
             .resize_exact(width as u32, height as u32, FilterType::Lanczos3)
@@ -1169,8 +1214,6 @@ impl EnhanceOptions {
         let data: Vec<f32> = resized.into_raw().into_iter().map(|v| v as f32).collect();
         Ok(Array::from_shape_vec((height, width, 3), data)?)
     }
-
-    
 }
 
 pub struct Upscale {
@@ -1232,178 +1275,141 @@ fn human(bytes: usize) -> String {
     }
 }
 
-fn new_builder(env: &Arc<Environment>, silent: bool) -> Result<SessionBuilder> {
+fn new_session(model_path: &Path, silent: bool) -> Result<Session> {
     // Optimize ONNX Runtime for maximum CPU utilization
     let num_threads_intra = thread::available_parallelism()
-        .map(|n| n.get() as i16)
+        .map(|n| n.get())
         .unwrap_or(4);
 
-    let num_threads_inter = if num_threads_intra > 8 {
-        4
-    } else {
-        2
-    };
+    let num_threads_inter = if num_threads_intra > 8 { 4 } else { 2 };
 
-    let builder = SessionBuilder::new(env)?
+    // Configure execution providers based on platform
+    // Try hardware acceleration first, fall back to CPU if unavailable
+    let mut _builder = Session::builder()?
         .with_optimization_level(GraphOptimizationLevel::Level3)?
         .with_intra_threads(num_threads_intra)?
         .with_inter_threads(num_threads_inter)?;
-    let mut providers = Vec::new();
+    let builder = &mut _builder;
 
+    // Register execution providers in order of preference
+    // ONNX Runtime will try each in order and fall back if unavailable
     #[cfg(target_os = "macos")]
     {
-        let coreml = ExecutionProvider::CoreML(
-            ort::execution_providers::CoreMLExecutionProviderOptions::default(),
-        );
-        if coreml.is_available() {
-            if !silent {
-                println!("CoreML execution provider is available");
+        let coreml = CoreMLExecutionProvider::default().with_subgraphs(true);
+        if coreml.is_available()? {
+            match coreml.register(builder) {
+                Ok(_) => {
+                    if !silent {
+                        println!("✓ Enabled CoreML Execution Provider for inference.");
+                    }
+                }
+                Err(e) => {
+                    if !silent {
+                        eprintln!("⚠️ CoreML Execution Provider failed to register: {}", e);
+                    }
+                }
             }
-            providers.push(coreml);
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let tensorrt = ExecutionProvider::TensorRT(
-            ort::execution_providers::TensorRTExecutionProviderOptions::default(),
-        );
-        if tensorrt.is_available() {
+        } else {
             if !silent {
-                println!("TensorRT execution provider is available");
+                println!("⚠️ CoreML Execution Provider not available.");
             }
-            providers.push(tensorrt);
-        }
-
-        let cuda = ExecutionProvider::CUDA(
-            ort::execution_providers::CUDAExecutionProviderOptions::default(),
-        );
-        if cuda.is_available() {
-            if !silent {
-                println!("CUDA execution provider is available");
-            }
-            providers.push(cuda);
         }
     }
 
     #[cfg(target_os = "linux")]
     {
-        let tensorrt = ExecutionProvider::TensorRT(
-            ort::execution_providers::TensorRTExecutionProviderOptions::default(),
-        );
-        if tensorrt.is_available() {
-            if !silent {
-                println!("TensorRT execution provider is available");
-            }
-            providers.push(tensorrt);
-        }
-
-        let cuda = ExecutionProvider::CUDA(
-            ort::execution_providers::CUDAExecutionProviderOptions::default(),
-        );
-        if cuda.is_available() {
-            if !silent {
-                println!("CUDA execution provider is available");
-            }
-            providers.push(cuda);
-        }
-    }
-
-    // Test each provider individually and collect successful ones
-    let mut successful_providers = Vec::new();
-    for provider in providers {
-        // Create a temporary builder to test this provider
-        let test_builder = SessionBuilder::new(env)?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(num_threads_intra)?
-            .with_inter_threads(num_threads_inter)?;
-        
-        match test_builder.with_execution_providers(vec![provider.clone()]) {
-            Ok(_) => {
-                if !silent {
-                    let provider_name = match &provider {
-                        ExecutionProvider::CPU(_) => "CPU",
-                        ExecutionProvider::CUDA(_) => "CUDA", 
-                        ExecutionProvider::TensorRT(_) => "TensorRT",
-                        #[cfg(target_os = "macos")]
-                        ExecutionProvider::CoreML(_) => "CoreML",
-                        #[cfg(target_os = "windows")]
-                        ExecutionProvider::DirectML(_) => "DirectML",
-                        _ => "Unknown",
-                    };
-                    println!("✓ {} execution provider test passed", provider_name);
-                }
-                successful_providers.push(provider);
-            }
-            Err(e) => {
-                let provider_name = match &provider {
-                    ExecutionProvider::CPU(_) => "CPU",
-                    ExecutionProvider::CUDA(_) => "CUDA",
-                    ExecutionProvider::TensorRT(_) => "TensorRT", 
-                    #[cfg(target_os = "macos")]
-                    ExecutionProvider::CoreML(_) => "CoreML",
-                    #[cfg(target_os = "windows")]
-                    ExecutionProvider::DirectML(_) => "DirectML",
-                    _ => "Unknown",
-                };
-                if !silent {
-                    eprintln!("✗ {} execution provider failed: {}", provider_name, e);
-                    match &provider {
-                        ExecutionProvider::CUDA(_) => {
-                            eprintln!("  → Check if NVIDIA GPU drivers and CUDA are properly installed");
-                            eprintln!("  → Verify CUDA version compatibility with ONNX Runtime");
-                        }
-                        ExecutionProvider::TensorRT(_) => {
-                            eprintln!("  → Ensure TensorRT is installed and compatible");
-                            eprintln!("  → Check NVIDIA driver version");
-                        }
-                        #[cfg(target_os = "windows")]
-                        ExecutionProvider::DirectML(_) => {
-                            eprintln!("  → Verify Windows version supports DirectML");
-                            eprintln!("  → Check if compatible GPU drivers are installed");
-                        }
-                        #[cfg(target_os = "macos")]
-                        ExecutionProvider::CoreML(_) => {
-                            eprintln!("  → Ensure running on macOS with CoreML support");
-                            eprintln!("  → Check macOS version compatibility");
-                        }
-                        _ => {}
+        let tensorrt = TensorRTExecutionProvider::default();
+        if tensorrt.is_available()? {
+            match tensorrt.register(builder) {
+                Ok(_) => {
+                    if !silent {
+                        println!("✓ Enabled TensorRT Execution Provider for inference.");
                     }
-                    eprintln!("  → Skipping this provider and continuing...");
                 }
+                Err(e) => {
+                    if !silent {
+                        eprintln!("⚠️ TensorRT Execution Provider failed to register: {}", e);
+                    }
+                }
+            }
+        } else {
+            if !silent {
+                println!("⚠️ TensorRT Execution Provider not available.");
+            }
+        }
+        let cuda = CUDAExecutionProvider::default();
+        if cuda.is_available()? {
+            match cuda.register(builder) {
+                Ok(_) => {
+                    if !silent {
+                        println!("✓ Enabled CUDA Execution Provider for inference.");
+                    }
+                }
+                Err(e) => {
+                    if !silent {
+                        eprintln!("⚠️ CUDA Execution Provider failed to register: {}", e);
+                    }
+                }
+            }
+        } else {
+            if !silent {
+                println!("⚠️ CUDA Execution Provider not available.");
             }
         }
     }
-    
-    // Register all successful providers at once
-    let final_builder = if !successful_providers.is_empty() {
-        match builder.with_execution_providers(successful_providers.clone()) {
-            Ok(new_builder) => {
-                if !silent {
-                    println!("✓ Successfully registered {} execution provider(s)", successful_providers.len());
+
+    #[cfg(target_os = "windows")]
+    {
+        let tensorrt = TensorRTExecutionProvider::default();
+        if tensorrt.is_available()? {
+            match tensorrt.register(builder) {
+                Ok(_) => {
+                    if !silent {
+                        println!("✓ Enabled TensorRT Execution Provider for inference.");
+                    }
                 }
-                new_builder
+                Err(e) => {
+                    if !silent {
+                        eprintln!("⚠️ TensorRT Execution Provider failed to register: {}", e);
+                    }
+                }
             }
-            Err(e) => {
-                if !silent {
-                    eprintln!("✗ Failed to register execution providers collectively: {}", e);
-                    eprintln!("  → Falling back to CPU-only execution");
-                }
-                // If registration fails, create a new builder without providers
-                SessionBuilder::new(env)?
-                    .with_optimization_level(GraphOptimizationLevel::Level3)?
-                    .with_intra_threads(num_threads_intra)?
-                    .with_inter_threads(num_threads_inter)?
+        } else {
+            if !silent {
+                println!("⚠️ TensorRT Execution Provider not available.");
             }
         }
-    } else {
-        if !silent {
-            println!("ℹ No hardware acceleration providers available, using CPU execution");
+        let cuda = CUDAExecutionProvider::default();
+        if cuda.is_available()? {
+            match cuda.register(builder) {
+                Ok(_) => {
+                    if !silent {
+                        println!("✓ Enabled CUDA Execution Provider for inference.");
+                    }
+                }
+                Err(e) => {
+                    if !silent {
+                        eprintln!("⚠️ CUDA Execution Provider failed to register: {}", e);
+                    }
+                }
+            }
+        } else {
+            if !silent {
+                println!("⚠️ CUDA Execution Provider not available.");
+            }
         }
-        builder
-    };
-    
-    Ok(final_builder)
+    }
+
+    let session = _builder.commit_from_file(model_path)?;
+
+    if !silent {
+        println!(
+            "✓ ONNX model loaded successfully from: {}",
+            model_path.display()
+        );
+    }
+
+    Ok(session)
 }
 
 /// Load a single frame from disk into memory as ndarray [H, W, C] with f32 values [0, 255]
@@ -1411,7 +1417,11 @@ fn load_frame(path: &PathBuf) -> Result<Array<f32, Ix3>> {
     let img = image::open(path)?.to_rgb8();
     let (width, height) = img.dimensions();
 
-    let data: Vec<f32> = img.into_raw().into_iter().map(|value| value as f32).collect();
+    let data: Vec<f32> = img
+        .into_raw()
+        .into_iter()
+        .map(|value| value as f32)
+        .collect();
     Ok(Array::from_shape_vec(
         (height as usize, width as usize, 3),
         data,
@@ -1419,11 +1429,7 @@ fn load_frame(path: &PathBuf) -> Result<Array<f32, Ix3>> {
 }
 
 /// Save a frame to disk as PNG
-fn save_frame(
-    frame: &Array<f32, Ix3>,
-    output_dir: &PathBuf,
-    frame_idx: usize,
-) -> Result<()> {
+fn save_frame(frame: &Array<f32, Ix3>, output_dir: &PathBuf, frame_idx: usize) -> Result<()> {
     let (height, width, _channels) = frame.dim();
 
     // CRITICAL: Ensure array is in standard (contiguous) layout before converting to raw buffer
