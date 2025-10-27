@@ -16,12 +16,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all("src/proto/onnx")?;
     std::fs::write("src/proto/onnx/onnx.proto", &proto_text)?;
 
-    // Compile the fetched proto into Rust types
-        // Compile the fetched proto into Rust types (write to OUT_DIR so the project
-        // can include them with concat!(env!("OUT_DIR"), "/onnx.rs")).
-        let protos = ["src/proto/onnx/onnx.proto"];
-        let includes = ["src/proto/onnx"];
-        prost_build::Config::new().compile_protos(&protos, &includes)?;
-        println!("cargo:rerun-if-changed=src/proto/onnx/onnx.proto");
+    // Compile the fetched proto into Rust types (write to OUT_DIR so the project
+    // can include them with concat!(env!("OUT_DIR"), "/onnx.rs")).
+    let protos = ["src/proto/onnx/onnx.proto"];
+    let includes = ["src/proto/onnx"];
+    prost_build::Config::new().compile_protos(&protos, &includes)?;
+    println!("cargo:rerun-if-changed=src/proto/onnx/onnx.proto");
     Ok(())
 }

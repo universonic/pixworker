@@ -54,7 +54,7 @@ pub fn inspect<P: AsRef<Path>>(path: P, graphviz: bool) -> Result<()> {
     for input in graph.input.iter() {
         let name = &input.name;
         let ty = type_str_from_value_info(input);
-        println!("  - {} : {}", name, ty);
+        println!("  - {}: {}", name, ty);
     }
 
     // Outputs
@@ -62,7 +62,7 @@ pub fn inspect<P: AsRef<Path>>(path: P, graphviz: bool) -> Result<()> {
     for output in graph.output.iter() {
         let name = &output.name;
         let ty = type_str_from_value_info(output);
-        println!("  - {} : {}", name, ty);
+        println!("  - {}: {}", name, ty);
     }
 
     // Operators used
@@ -72,11 +72,11 @@ pub fn inspect<P: AsRef<Path>>(path: P, graphviz: bool) -> Result<()> {
         *op_count.entry(op).or_default() += 1;
     }
 
-    println!("\nOperators used (type : count):");
+    println!("\nOperators (type: count):");
     let mut ops: Vec<_> = op_count.into_iter().collect();
     ops.sort_by(|a, b| b.1.cmp(&a.1));
     for (op, cnt) in ops.iter() {
-        println!("  {} : {}", op, cnt);
+        println!("  {}: {}", op, cnt);
     }
 
     if graphviz {
