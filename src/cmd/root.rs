@@ -1,11 +1,17 @@
+use crate::utils::ffmpeg::{archive, extract};
+use crate::utils::onnx as onnx_util;
+use crate::utils::tensor::enhance;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use crate::utils::ffmpeg::{archive, extract};
-use crate::utils::tensor::enhance;
 
 #[derive(Parser)]
-#[command(version, about, long_about = "A simple tool to handle media file operations.")]
+#[command(
+    version,
+    about,
+    long_about = "A simple tool to handle media file operations.",
+    arg_required_else_help(true)
+)]
 pub struct RootCmd {
     /// Turn debugging information on.
     // #[arg(short, long, action = clap::ArgAction::Count, default_value_t = 0)]
@@ -45,7 +51,21 @@ impl RootCmd {
                 vfi,
                 vfi_model,
                 silent,
-            }) => enhance(input, output, upscale, upscale_model, vfi, vfi_model, silent)?,
+            }) => enhance(
+                input,
+                output,
+                upscale,
+                upscale_model,
+                vfi,
+                vfi_model,
+                silent,
+            )?,
+            Some(SubCommands::Devtool {
+                dev: Some(DevToolSubCommands::Onnx { path, graphviz }),
+            }) => {
+                onnx_util::inspect(path, *graphviz)?;
+            }
+            Some(SubCommands::Devtool { dev: None }) => {}
             None => {}
         }
         Ok(())
@@ -140,5 +160,27 @@ pub enum SubCommands {
         /// Silent mode, no ffmpeg output except errors.
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         silent: Option<bool>,
-    }
+    },
+
+    /// Developer utilities
+    #[command(hide = true)]
+    Devtool {
+        #[command(subcommand)]
+        dev: Option<DevToolSubCommands>,
+    },
+}
+
+#[derive(Subcommand)]
+#[command(arg_required_else_help(true))]
+pub enum DevToolSubCommands {
+    /// Inspect an ONNX model file, inspired by huggingface/candle-onnx
+    Onnx {
+        /// Path to the ONNX model file
+        #[arg(value_name = "FILE")]
+        path: PathBuf,
+
+        /// Generate a Graphviz DOT output next to the model file
+        #[arg(short, long, action = clap::ArgAction::SetTrue)]
+        graphviz: bool,
+    },
 }

@@ -13,7 +13,10 @@ reqwest = { version = "0.12.24", features = ["blocking"] }
 scopeguard = "1.2"
 tempfile = "3.23.0"
 image = { version = "0.25", features = ["png", "jpeg"] }
+# ONNX protobuf parser for devtool/onnx inspector
+prost = "0.14"
 ndarray = "0.15.6"
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.9.2-alpha.1" }
 ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -21,6 +24,13 @@ ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "hal
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "cuda", "tensorrt"] }
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.9.2-alpha.1", features = ["cuda"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ort = { version = "1.16.3", features = ["download-binaries", "copy-dylibs", "half", "cuda", "tensorrt"] }
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.9.2-alpha.1", features = ["cuda"] }
+
+
+[build-dependencies]
+prost-build = "0.14"
+ureq = "3.1.2"
