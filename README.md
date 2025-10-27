@@ -2,6 +2,8 @@
 
 [中文文档](README_zh_CN.md)
 
+> Note: This project is in early development. Features are experimental and may be incomplete or unstable. Use for learning and research purposes only.
+
 A video enhancement tool powered by ONNX Runtime, supporting frame interpolation and upscaling.
 
 ## Features
