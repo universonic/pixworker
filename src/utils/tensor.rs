@@ -4,9 +4,11 @@ use anyhow::{bail, Result};
 use half::f16;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgb};
-use ndarray::{s, Array, Axis, CowArray, Ix3, Ix4};
+use ndarray::{s, Array, Axis, Ix3};
+use crate::utils::gimm::GimmVfi;
+use crate::utils::realesrgan::RealESRGAN;
 use ndarray::stack;
-use ort::{Environment, GraphOptimizationLevel, Session, SessionBuilder, Value, execution_providers::ExecutionProvider};
+use ort::{Environment, GraphOptimizationLevel, SessionBuilder, execution_providers::ExecutionProvider};
 use scopeguard::defer;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -358,8 +360,14 @@ impl EnhanceOptions {
             println!("Loading VFI model: {}", model_path.display());
         }
 
-        let _session = new_builder(onnx_env, self.silent)?
+        let session = new_builder(onnx_env, self.silent)?
             .with_model_from_file(&model_path)?;
+
+        let use_fp16 = matches!(
+            self.vfi_model,
+            VFIModel::GimmVfiFPHf | VFIModel::GimmVfiRPHf
+        );
+        let gimm = GimmVfi::new(session, use_fp16);
 
         if !self.silent {
             println!("VFI model loaded successfully");
@@ -445,8 +453,7 @@ impl EnhanceOptions {
         fs::create_dir_all(&output_path)?;
 
         // Process frame interpolation in streaming fashion
-        let session = &_session;
-        let mut output_frame_idx = 0;
+    let mut output_frame_idx = 0;
 
         for i in 0..frame_files.len() - 1 {
             // Load only current frame pair (memory efficient)
@@ -464,9 +471,9 @@ impl EnhanceOptions {
             save_frame(&frame_start, &output_path, output_frame_idx)?;
             output_frame_idx += 1;
 
-            // Generate interpolated frames
+            // Generate interpolated frames using GIMM wrapper
             let interpolated_frames = self.interpolate_frames(
-                session,
+                &gimm,
                 &frame_start,
                 &frame_end,
                 frame_multiplier as usize - 1,
@@ -617,7 +624,12 @@ impl EnhanceOptions {
             println!("Processing {} frames for upscaling...", frame_files.len());
         }
 
-        let allocator = session.allocator();
+        // Wrap session in RealESRGAN helper
+        let supports_denoise = matches!(
+            self.upscale_model,
+            UpscaleModel::RealESRGeneralx4v3 | UpscaleModel::RealESRGeneralx4v3Hf
+        );
+        let model = RealESRGAN::new(session, use_fp16, supports_denoise);
 
         for (idx, path) in frame_files.iter().enumerate() {
             if !self.silent && idx % 10 == 0 {
@@ -649,70 +661,38 @@ impl EnhanceOptions {
                 // Add batch dimension: [1, C, H, W]
                 let chw_batch = chw.view().insert_axis(Axis(0));
 
-                // Check if model supports denoise_strength input (only realesr-general-x4v3)
-                let supports_denoise = matches!(
-                    self.upscale_model,
-                    UpscaleModel::RealESRGeneralx4v3 | UpscaleModel::RealESRGeneralx4v3Hf
-                );
                 
                 // Denoise strength: 1.0 favors detail, 0.0 favors denoise
                 let denoise_strength = 0.1f32; // Balanced default
 
-                // Run inference and get output in HWC format [H, W, C] with values [0, 255]
+                // Run inference via RealESRGAN wrapper and convert to HWC [0,255]
                 current_frame = if use_fp16 {
                     // FP16 path: convert input to fp16, run inference, convert output back
                     let chw_fp16 = chw_batch.mapv(|v| f16::from_f32(v));
-                    let input_tensor = CowArray::from(chw_fp16.into_dyn());
-                    
-                    // Prepare denoise tensor outside of conditional to avoid lifetime issues
-                    let denoise_array = Array::from_shape_vec((1,), vec![f16::from_f32(denoise_strength)])?;
-                    let denoise_tensor = CowArray::from(denoise_array.into_dyn());
-                    
-                    let img_value = Value::from_array(allocator, &input_tensor)?;
-                    let denoise_value = Value::from_array(allocator, &denoise_tensor)?;
+                    let input_arr = chw_fp16.to_owned().into_dyn();
 
-                    let outputs = if supports_denoise {
-                        session.run(vec![img_value, denoise_value])?
-                    } else {
-                        session.run(vec![img_value])?
-                    };
-                    
-                    let output = &outputs[0];
-                    
-                    // Extract and process FP16 output directly to avoid extra conversions
-                    let output_fp16 = output.try_extract::<f16>()?;
-                    let output_4d = output_fp16.view().to_owned().into_dimensionality::<Ix4>()?;
+                    // Prepare denoise tensor in fp16
+                    let denoise_array = Array::from_shape_vec((1,), vec![f16::from_f32(denoise_strength)])?;
+                    let denoise_arr = denoise_array.into_dyn();
+
+                    let output_4d = model.infer_fp16(input_arr, denoise_arr)?;
                     let output_3d = output_4d.index_axis(Axis(0), 0);
-                    let hwc = output_3d.permuted_axes([1, 2, 0]).as_standard_layout().to_owned();
-                    
-                    // Convert fp16 to f32 and scale to [0, 255] in one operation
+                    let hwc_view = output_3d.permuted_axes([1, 2, 0]);
+                    let hwc = hwc_view.as_standard_layout().into_owned();
+
+                    // Convert fp16 to f32 and scale to [0, 255]
                     hwc.mapv(|v| (v.to_f32() * 255.0).clamp(0.0, 255.0))
                 } else {
-                    // FP32 path: no type conversion needed
-                    let input_tensor = CowArray::from(chw_batch.to_owned().into_dyn());
-                    
-                    // Prepare denoise tensor outside of conditional to avoid lifetime issues
+                    // FP32 path
+                    let input_arr = chw_batch.to_owned().into_dyn();
                     let denoise_array = Array::from_shape_vec((1,), vec![denoise_strength])?;
-                    let denoise_tensor = CowArray::from(denoise_array.into_dyn());
-                    
-                    let img_value = Value::from_array(allocator, &input_tensor)?;
-                    let denoise_value = Value::from_array(allocator, &denoise_tensor)?;
+                    let denoise_arr = denoise_array.into_dyn();
 
-                    let outputs = if supports_denoise {
-                        session.run(vec![img_value, denoise_value])?
-                    } else {
-                        session.run(vec![img_value])?
-                    };
-
-                    let output = &outputs[0];
-                    let output_fp32 = output.try_extract::<f32>()?;
-                    
-                    // Process output directly
-                    let output_4d = output_fp32.view().to_owned().into_dimensionality::<Ix4>()?;
+                    let output_4d = model.infer_fp32(input_arr, denoise_arr)?;
                     let output_3d = output_4d.index_axis(Axis(0), 0);
-                    let hwc = output_3d.permuted_axes([1, 2, 0]).as_standard_layout().to_owned();
-                    
-                    // Scale to [0, 255] directly
+                    let hwc_view = output_3d.permuted_axes([1, 2, 0]);
+                    let hwc = hwc_view.as_standard_layout().into_owned();
+
                     hwc.mapv(|v| (v * 255.0).clamp(0.0, 255.0))
                 };
             }
@@ -746,7 +726,7 @@ impl EnhanceOptions {
     /// Vector of interpolated frames as ndarray [H, W, C], values [0, 255]
     fn interpolate_frames(
         &self,
-        session: &Session,
+        gimm: &GimmVfi,
         frame0: &Array<f32, Ix3>,
         frame1: &Array<f32, Ix3>,
         num_interp: usize,
@@ -792,16 +772,12 @@ impl EnhanceOptions {
         let frame1_batch = frame1_chw.view().insert_axis(Axis(0));
         let img_xs = stack(Axis(2), &[frame0_batch, frame1_batch])?;
 
-        // Determine dtype based on model type
-        let use_fp16 = matches!(
-            self.vfi_model,
-            VFIModel::GimmVfiFPHf | VFIModel::GimmVfiRPHf
-        );
+        // Determine dtype based on model wrapper
+        let use_fp16 = gimm.use_fp16;
         let img_xs_fp16 = use_fp16.then(|| img_xs.mapv(|value| f16::from_f32(value)));
 
         // Generate all interpolated frames
         let mut result_frames = Vec::with_capacity(num_interp);
-        let allocator = session.allocator();
 
         for i in 0..num_interp {
             // Calculate time value for this interpolation
@@ -815,90 +791,48 @@ impl EnhanceOptions {
             // Note: ds_factor is now fixed at 1.0 inside the ONNX model
             // No need to pass it as an input anymore
 
-            // Prepare ONNX inputs based on precision
-            let outputs = if use_fp16 {
-                // ============================================================
+            // Prepare inputs and run inference via GimmVfi wrapper
+            let padded_frame = if use_fp16 {
                 // FP16 path: img_xs and t are fp16, coord is ALWAYS fp32
-                // ============================================================
-
-                // CRITICAL: coord is ALWAYS fp32, even for fp16 models
                 let coord_array = self.generate_coord(1, height, width, t_value)?;
 
                 // Create t tensor in fp16
                 let t_array = Array::from_shape_vec((1,), vec![f16::from_f32(t_value)])?;
 
-                // Create CowArray wrappers
-                let img_xs_cow = CowArray::from(
-                    img_xs_fp16
-                        .as_ref()
-                        .expect("fp16 tensor available")
-                        .view()
-                        .into_dyn(),
-                );
-                let coord_cow = CowArray::from(coord_array.into_dyn());
-                let t_cow = CowArray::from(t_array.into_dyn());
+                // Prepare owned arrays and convert to dynamic dims
+                let img_xs_arr = img_xs_fp16
+                    .as_ref()
+                    .expect("fp16 tensor available")
+                    .view()
+                    .to_owned()
+                    .into_dyn();
+                let coord_arr = coord_array.into_dyn();
+                let t_arr = t_array.into_dyn();
 
-                // Create ONNX Value objects
-                let img_xs_value = Value::from_array(allocator, &img_xs_cow)?;
-                let coord_value = Value::from_array(allocator, &coord_cow)?;
-                let t_value_onnx = Value::from_array(allocator, &t_cow)?;
+                // Run model and get owned 4D output [1, C, H, W]
+                let output_4d = gimm.infer_fp16(img_xs_arr, coord_arr, t_arr)?;
 
-                // Run inference with 3 inputs: img_xs (fp16), coord (fp32), t (fp16)
-                session.run(vec![img_xs_value, coord_value, t_value_onnx])?
-            } else {
-                // ============================================================
-                // FP32 path: Generate everything in fp32 directly
-                // ============================================================
-
-                // Generate coord in fp32 directly
-                let coord_array = self.generate_coord(1, height, width, t_value)?;
-
-                // Create t tensor in fp32
-                let t_array = Array::from_shape_vec((1,), vec![t_value])?;
-
-                // Create CowArray wrappers
-                let img_xs_cow = CowArray::from(img_xs.view().into_dyn());
-                let coord_cow = CowArray::from(coord_array.into_dyn());
-                let t_cow = CowArray::from(t_array.into_dyn());
-
-                // Create ONNX Value objects
-                let img_xs_value = Value::from_array(allocator, &img_xs_cow)?;
-                let coord_value = Value::from_array(allocator, &coord_cow)?;
-                let t_value_onnx = Value::from_array(allocator, &t_cow)?;
-
-                // Run inference with 3 inputs: img_xs, coord, t
-                // ds_factor is now fixed at 1.0 inside the model
-                session.run(vec![img_xs_value, coord_value, t_value_onnx])?
-            };
-
-            // Extract output tensor and convert back to [H, W, C] format
-            // Output shape is [1, C, H, W] (padded dimensions)
-            let output = &outputs[0];
-
-            // OPTIMIZATION: Reduce debug overhead
-            let padded_frame = if use_fp16 {
-                let output_array = output.try_extract::<f16>()?;
-                let output_owned = output_array.view().to_owned();
-                let chw_4d = output_owned.into_dimensionality::<Ix4>()?;
-                let chw = chw_4d.index_axis(Axis(0), 0);
-                
-                // CRITICAL: permuted_axes returns non-contiguous view
-                // Must use as_standard_layout() to get contiguous HWC layout
-                let hwc_view = chw.permuted_axes([1, 2, 0]);
+                let output_3d = output_4d.index_axis(Axis(0), 0);
+                let hwc_view = output_3d.permuted_axes([1, 2, 0]);
                 let hwc = hwc_view.as_standard_layout().into_owned();
-                
+
+                // Convert fp16 to f32 and scale to [0, 255]
                 hwc.mapv(|value| (value.to_f32() * 255.0).clamp(0.0, 255.0))
             } else {
-                let output_array = output.try_extract::<f32>()?;
-                let output_owned = output_array.view().to_owned();
-                let chw_4d = output_owned.into_dimensionality::<Ix4>()?;
-                let chw = chw_4d.index_axis(Axis(0), 0);
-                
-                // CRITICAL: permuted_axes returns non-contiguous view
-                // Must use as_standard_layout() to get contiguous HWC layout
-                let hwc_view = chw.permuted_axes([1, 2, 0]);
+                // FP32 path
+                let coord_array = self.generate_coord(1, height, width, t_value)?;
+                let t_array = Array::from_shape_vec((1,), vec![t_value])?;
+
+                let img_xs_arr = img_xs.view().to_owned().into_dyn();
+                let coord_arr = coord_array.into_dyn();
+                let t_arr = t_array.into_dyn();
+
+                let output_4d = gimm.infer_fp32(img_xs_arr, coord_arr, t_arr)?;
+
+                let output_3d = output_4d.index_axis(Axis(0), 0);
+                let hwc_view = output_3d.permuted_axes([1, 2, 0]);
                 let hwc = hwc_view.as_standard_layout().into_owned();
-                
+
                 hwc.mapv(|value| (value * 255.0).clamp(0.0, 255.0))
             };
 
