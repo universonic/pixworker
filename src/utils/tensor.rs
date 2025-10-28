@@ -1186,9 +1186,9 @@ fn new_builder(env: &Arc<Environment>, silent: bool) -> Result<SessionBuilder> {
 
     #[cfg(target_os = "macos")]
     {
-        let coreml = ExecutionProvider::CoreML(
-            ort::execution_providers::CoreMLExecutionProviderOptions::default(),
-        );
+        let mut coreml_options = ort::execution_providers::CoreMLExecutionProviderOptions::default();
+        coreml_options.enable_on_subgraph = true;
+        let coreml = ExecutionProvider::CoreML(coreml_options);
         if coreml.is_available() {
             if !silent {
                 println!("CoreML execution provider is available");
@@ -1199,9 +1199,9 @@ fn new_builder(env: &Arc<Environment>, silent: bool) -> Result<SessionBuilder> {
 
     #[cfg(target_os = "windows")]
     {
-        let tensorrt = ExecutionProvider::TensorRT(
-            ort::execution_providers::TensorRTExecutionProviderOptions::default(),
-        );
+        let mut tensorrt_options = ort::execution_providers::TensorRTExecutionProviderOptions::default();
+        tensorrt_options.fp16_enable = true;
+        let tensorrt = ExecutionProvider::TensorRT(tensorrt_options);
         if tensorrt.is_available() {
             if !silent {
                 println!("TensorRT execution provider is available");
@@ -1209,9 +1209,9 @@ fn new_builder(env: &Arc<Environment>, silent: bool) -> Result<SessionBuilder> {
             providers.push(tensorrt);
         }
 
-        let cuda = ExecutionProvider::CUDA(
-            ort::execution_providers::CUDAExecutionProviderOptions::default(),
-        );
+        let mut cuda_options = ort::execution_providers::CUDAExecutionProviderOptions::default();
+        cuda_options.enable_cuda_graph = true;
+        let cuda = ExecutionProvider::CUDA(cuda_options);
         if cuda.is_available() {
             if !silent {
                 println!("CUDA execution provider is available");
@@ -1222,9 +1222,9 @@ fn new_builder(env: &Arc<Environment>, silent: bool) -> Result<SessionBuilder> {
 
     #[cfg(target_os = "linux")]
     {
-        let tensorrt = ExecutionProvider::TensorRT(
-            ort::execution_providers::TensorRTExecutionProviderOptions::default(),
-        );
+        let mut tensorrt_options = ort::execution_providers::TensorRTExecutionProviderOptions::default();
+        tensorrt_options.fp16_enable = true;
+        let tensorrt = ExecutionProvider::TensorRT(tensorrt_options);
         if tensorrt.is_available() {
             if !silent {
                 println!("TensorRT execution provider is available");
@@ -1232,9 +1232,9 @@ fn new_builder(env: &Arc<Environment>, silent: bool) -> Result<SessionBuilder> {
             providers.push(tensorrt);
         }
 
-        let cuda = ExecutionProvider::CUDA(
-            ort::execution_providers::CUDAExecutionProviderOptions::default(),
-        );
+        let mut cuda_options = ort::execution_providers::CUDAExecutionProviderOptions::default();
+        cuda_options.enable_cuda_graph = true;
+        let cuda = ExecutionProvider::CUDA(cuda_options);
         if cuda.is_available() {
             if !silent {
                 println!("CUDA execution provider is available");
