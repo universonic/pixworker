@@ -285,6 +285,10 @@ impl EnhanceOptions {
     }
 
     pub fn process(&self) -> Result<()> {
+        if !self.silent {
+            tracing_subscriber::fmt::init();
+        }
+
         let mut tempdir = TempDir::new()?;
         tempdir.disable_cleanup(true);
         let tempdir_path = tempdir.path().to_path_buf();
@@ -312,6 +316,7 @@ impl EnhanceOptions {
         // Create ONNX session with optimizations
         let environment = Environment::builder()
             .with_name("pixworker")
+            .with_log_level(ort::LoggingLevel::Verbose)
             .build()?
             .into_arc();
 
