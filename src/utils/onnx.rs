@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::Path;
 
 /// Inspect an ONNX model file and print inputs, outputs, metadata and operator usage.
-pub fn inspect<P: AsRef<Path>>(path: P, graphviz: bool) -> Result<()> {
+pub fn inspect<P: AsRef<Path>>(path: P, graphviz: bool, list: bool) -> Result<()> {
     let path = path.as_ref();
     let buf =
         fs::read(path).with_context(|| format!("failed to read ONNX model: {}", path.display()))?;
@@ -47,10 +47,65 @@ pub fn inspect<P: AsRef<Path>>(path: P, graphviz: bool) -> Result<()> {
         }
     };
 
+    // If the user requested a raw listing, print each node's name, op_type and attributes
+    if list {
+        println!("Graph: {}", graph.name);
+        println!("Nodes (name: op_type, attributes):");
+        for (idx, node) in graph.node.iter().enumerate() {
+            let node_name = if node.name.is_empty() { format!("<unnamed_{}>", idx) } else { node.name.clone() };
+            println!("- {}: {}", node_name, node.op_type);
+
+            if node.attribute.is_empty() {
+                println!("  (no attributes)");
+                continue;
+            }
+
+            for attr in node.attribute.iter() {
+                // Collect readable representation of common AttributeProto fields
+                let mut pieces: Vec<String> = Vec::new();
+
+                if !attr.s.is_empty() {
+                    pieces.push(format!("s=\"{}\"", String::from_utf8_lossy(&attr.s)));
+                }
+                if attr.f != 0.0 {
+                    pieces.push(format!("f={}", attr.f));
+                }
+                // Note: i may legitimately be zero in some models; still useful to print
+                pieces.push(format!("i={}", attr.i));
+                if !attr.ints.is_empty() {
+                    pieces.push(format!("ints={:?}", attr.ints));
+                }
+                if !attr.floats.is_empty() {
+                    pieces.push(format!("floats={:?}", attr.floats));
+                }
+                if !attr.strings.is_empty() {
+                    let strs: Vec<String> = attr
+                        .strings
+                        .iter()
+                        .map(|b| String::from_utf8_lossy(b).to_string())
+                        .collect();
+                    pieces.push(format!("strings={:?}", strs));
+                }
+                if let Some(t) = attr.t.as_ref() {
+                    pieces.push(format!("tensor(dtype={}, dims={:?})", t.data_type, t.dims));
+                }
+
+                if pieces.is_empty() {
+                    // Fallback: print attribute name and raw type id
+                    println!("  - {} (raw type={})", attr.name, attr.r#type);
+                } else {
+                    println!("  - {}: {}", attr.name, pieces.join(", "));
+                }
+            }
+        }
+
+        return Ok(());
+    }
+
     println!("Graph: {}", graph.name);
 
     // Inputs
-    println!("\nInputs:");
+    println!("Inputs:");
     for input in graph.input.iter() {
         let name = &input.name;
         let ty = type_str_from_value_info(input);
@@ -58,7 +113,7 @@ pub fn inspect<P: AsRef<Path>>(path: P, graphviz: bool) -> Result<()> {
     }
 
     // Outputs
-    println!("\nOutputs:");
+    println!("Outputs:");
     for output in graph.output.iter() {
         let name = &output.name;
         let ty = type_str_from_value_info(output);
@@ -72,7 +127,7 @@ pub fn inspect<P: AsRef<Path>>(path: P, graphviz: bool) -> Result<()> {
         *op_count.entry(op).or_default() += 1;
     }
 
-    println!("\nOperators (type: count):");
+    println!("Operators (type: count):");
     let mut ops: Vec<_> = op_count.into_iter().collect();
     ops.sort_by(|a, b| b.1.cmp(&a.1));
     for (op, cnt) in ops.iter() {
@@ -86,8 +141,8 @@ pub fn inspect<P: AsRef<Path>>(path: P, graphviz: bool) -> Result<()> {
         const WARN_THRESHOLD: usize = 5 * 1024 * 1024; // 5 MiB
         if dot_size > WARN_THRESHOLD {
             eprintln!(
-                "Warning: generated Graphviz DOT is large ({} bytes > {} bytes). Writing and opening it may be slow or consume a lot of memory.",
-                dot_size, WARN_THRESHOLD
+                "Warning: generated Graphviz DOT is too large ({} > {}). Writing and opening it may be slow or consume a lot of memory.",
+                human(dot_size), human(WARN_THRESHOLD)
             );
         }
 
@@ -234,4 +289,20 @@ fn sanitize_name(s: &str) -> String {
 
 fn escape_label(s: &str) -> String {
     s.replace('"', "\\\"")
+}
+
+// Format bytes to a human readable string, e.g. 1024 -> "1.00 KiB"
+fn human(bytes: usize) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut v = bytes as f64;
+    let mut i = 0usize;
+    while v >= 1024.0 && i < UNITS.len() - 1 {
+        v /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{} {}", bytes, UNITS[i])
+    } else {
+        format!("{:.2} {}", v, UNITS[i])
+    }
 }

@@ -61,9 +61,9 @@ impl RootCmd {
                 silent,
             )?,
             Some(SubCommands::Devtool {
-                dev: Some(DevToolSubCommands::Onnx { path, graphviz }),
+                dev: Some(DevToolSubCommands::Onnx { path, graphviz, list }),
             }) => {
-                onnx_util::inspect(path, *graphviz)?;
+                onnx_util::inspect(path, *graphviz, *list)?;
             }
             Some(SubCommands::Devtool { dev: None }) => {}
             None => {}
@@ -182,5 +182,9 @@ pub enum DevToolSubCommands {
         /// Generate a Graphviz DOT output next to the model file
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         graphviz: bool,
+
+        /// List nodes in the model, printing their names and attributes
+        #[arg(short, long, action = clap::ArgAction::SetTrue)]
+        list: bool,
     },
 }
