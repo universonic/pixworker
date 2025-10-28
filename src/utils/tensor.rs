@@ -288,6 +288,10 @@ impl EnhanceOptions {
     }
 
     pub fn process(&self) -> Result<()> {
+        if !self.silent {
+            tracing_subscriber::fmt::init();
+        }
+
         let mut tempdir = TempDir::new()?;
         tempdir.disable_cleanup(true);
         let tempdir_path = tempdir.path().to_path_buf();
@@ -461,7 +465,7 @@ impl EnhanceOptions {
             save_frame(&frame_start, &output_path, output_frame_idx)?;
             output_frame_idx += 1;
 
-            // Generate interpolated frames
+            // Generate interpolated frames using GIMM wrapper
             let interpolated_frames = self.interpolate_frames(
                 session,
                 &frame_start,
@@ -656,7 +660,7 @@ impl EnhanceOptions {
                 // Denoise strength: 1.0 favors detail, 0.0 favors denoise
                 let denoise_strength = 0.1f32; // Balanced default
 
-                // Run inference and get output in HWC format [H, W, C] with values [0, 255]
+                // Run inference via RealESRGAN wrapper and convert to HWC [0,255]
                 current_frame = if use_fp16 {
                     // FP16 path: convert input to fp16, run inference, convert output back
                     let chw_fp16 = chw_batch.mapv(f16::from_f32);
@@ -798,7 +802,7 @@ impl EnhanceOptions {
         let frame1_batch = frame1_chw.view().insert_axis(Axis(0));
         let img_xs = stack(Axis(2), &[frame0_batch, frame1_batch])?;
 
-        // Determine dtype based on model type
+        // Determine dtype based on model wrapper
         let use_fp16 = matches!(
             self.vfi_model,
             VFIModel::GimmVfiFPHf | VFIModel::GimmVfiRPHf
