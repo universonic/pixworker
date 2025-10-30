@@ -5,7 +5,7 @@
 #   make add-targets    # add required rustup targets
 #   make build-targets  # build all targets
 #   make clean          # cargo clean
-MANIFEST_DIR := $(abspath $(lastword $(MAKEFILE_LIST)))
+MANIFEST_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 # Detect host OS to determine available targets
 UNAME_S := $(shell uname -s 2>/dev/null)
