@@ -1,13 +1,13 @@
 use std::env;
 use std::fs;
-use std::io::copy;
+use std::io::{copy, Read, Cursor};
 use std::path::Path;
 use anyhow::Result;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // HTTP GET
     let link = choose_download_url()?;
-    let mut resp = ureq::get(link).call()?;
+    let mut resp = ureq::get(&link).call()?;
     if resp.status() != 200 {
         return Err(format!("failed to download archive: HTTP {}", resp.status()).into());
     }
@@ -21,61 +21,102 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         env::set_var("ORT_STRATEGY", "system");
         env::set_var("ORT_LIB_LOCATION", out_dir.display().to_string());
     }
-    println!("cargo:rustc-env=LD_LIBRARY_PATH=/usr/lib:{}", out_dir.display());
 
     // Stream the response, gunzip and untar; copy only dynamic libraries to out_dir
     let reader = resp.body_mut().as_reader();
-    let gz = flate2::read::GzDecoder::new(reader);
-    let mut archive = tar::Archive::new(gz);
+    if link.ends_with(".tgz") {
+        let gz = flate2::read::GzDecoder::new(reader);
+        let mut archive = tar::Archive::new(gz);
 
-    for entry in archive.entries()? {
-        let mut entry = entry?;
+        for entry in archive.entries()? {
+            let mut entry = entry?;
 
-        // Extract an owned file-name String in a short-lived scope so we don't
-        // hold any immutable borrow of `entry` when we later need a mutable
-        // borrow for copying the entry contents.
-        let name_opt = {
-            match entry.path() {
-                Ok(p) => p.file_name().and_then(|s| s.to_str()).map(|s| s.to_owned()),
-                Err(_) => None,
-            }
-        };
-
-        if let Some(name) = name_opt {
-            // Accept common dynamic library extensions for macOS/Linux/Windows
-            if name.ends_with(".dylib") || name.ends_with(".so") || name.ends_with(".dll") {
-                let dest = out_dir.join(&name);
-                if dest.exists() {
-                    std::fs::remove_file(&dest)?;
+            // Extract an owned file-name String in a short-lived scope so we don't
+            // hold any immutable borrow of `entry` when we later need a mutable
+            // borrow for copying the entry contents.
+            let name_opt = {
+                match entry.path() {
+                    Ok(p) => p.file_name().and_then(|s| s.to_str()).map(|s| s.to_owned()),
+                    Err(_) => None,
                 }
+            };
 
-                if entry.header().entry_type().is_symlink() {
-                    // create symlink at dest
-                    if let Ok(target_path) = entry.link_name() {
-                        if let Some(target_str) = target_path.unwrap().to_str() {
-                            #[cfg(unix)] {
-                                use std::os::unix::fs::symlink;
-                                let _ = symlink(target_str, &dest);
+            if let Some(name) = name_opt {
+                // Accept common dynamic library extensions for macOS/Linux
+                if name.ends_with(".dylib") || name.ends_with(".so") {
+                    let dest = out_dir.join(&name);
+                    if dest.exists() {
+                        std::fs::remove_file(&dest)?;
+                    }
+
+                    if entry.header().entry_type().is_symlink() {
+                        // create symlink at dest
+                        if let Ok(target_path) = entry.link_name() {
+                            if let Some(target_str) = target_path.unwrap().to_str() {
+                                #[cfg(unix)] {
+                                    use std::os::unix::fs::symlink;
+                                    let _ = symlink(target_str, &dest);
+                                }
+                                #[cfg(windows)] {
+                                    use std::os::windows::fs::symlink_file;
+                                    let _ = symlink_file(target_str, &dest);
+                                }
+                                #[cfg(not(any(unix, windows)))] {
+                                    println!("cargo:error=symlinks not supported on this platform");
+                                }
                             }
-                            #[cfg(windows)] {
+                        }
+                        continue;
+                    }
+                    // If file already exists, overwrite it
+                    let mut out = fs::File::create(&dest)?;
+                    // Now we can mutably borrow `entry` to read its contents.
+                    copy(&mut entry, &mut out)?;
+                    println!("cargo:warning=extracted {} -> {}", name, dest.display());
+                }
+            }
+        }
+    } else {
+        // zip::ZipArchive requires a Read + Seek. The HTTP response reader is
+        // not seekable, so read the entire body into memory and open the
+        // archive from a Cursor.
+        let mut buf: Vec<u8> = Vec::new();
+        let mut reader = reader; // make mutable
+        reader.read_to_end(&mut buf)?;
+        let cursor = Cursor::new(buf);
+        let mut zip = zip::ZipArchive::new(cursor)?;
+        for i in 0..zip.len() {
+            let mut file = zip.by_index(i)?;
+            let name = match file.enclosed_name() {
+                Some(p) => p.file_name().and_then(|s| s.to_str()).map(|s| s.to_owned()),
+                None => None,
+            };
+            if let Some(name) = name {
+                if name.ends_with(".dll") {
+                    let dest = out_dir.join(&name);
+                    if file.is_symlink() {
+                        // create symlink at dest
+                        if let Some(target_path) = file.enclosed_name() {
+                            if let Some(target_str) = target_path.file_name().and_then(|s| s.to_str()) {
                                 use std::os::windows::fs::symlink_file;
                                 let _ = symlink_file(target_str, &dest);
                             }
-                            #[cfg(not(any(unix, windows)))] {
-                                println!("cargo:error=symlinks not supported on this platform");
-                            }
                         }
+                        continue;
                     }
-                    continue;
+                    if dest.exists() {
+                        std::fs::remove_file(&dest)?;
+                    }
+                    let mut out = fs::File::create(&dest)?;
+                    copy(&mut file, &mut out)?;
+                    println!("cargo:warning=extracted {} -> {}", name, dest.display());
                 }
-                // If file already exists, overwrite it
-                let mut out = fs::File::create(&dest)?;
-                // Now we can mutably borrow `entry` to read its contents.
-                copy(&mut entry, &mut out)?;
-                println!("cargo:warning=extracted {} -> {}", name, dest.display());
             }
         }
+        println!("cargo:rustc-link-search=native={}", out_dir.display());
+        return Ok(());
     }
+
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     Ok(())
 }

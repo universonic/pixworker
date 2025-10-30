@@ -118,24 +118,24 @@ linux-arm64:
 
 windows-x64:
 	@echo "==> Building for Windows x86_64"
-	@rustup target add x86_64-pc-windows-msvc >/dev/null 2>&1 || true
-	@ORT_STRATEGY=system ORT_LIB_LOCATION=$(MANIFEST_DIR)\target\x86_64-pc-windows-msvc\release cargo build --release --target x86_64-pc-windows-msvc
+	@rustup target add x86_64-pc-windows-msvc >NUL 2>&1 || echo
+	@cmd /C "set ORT_STRATEGY=system&& set ORT_LIB_LOCATION=$(MANIFEST_DIR)\\target\\x86_64-pc-windows-msvc\\release&& cargo build --release --target x86_64-pc-windows-msvc"
 	@echo "✓ Binary: target\x86_64-pc-windows-msvc\release\$(BIN_NAME).exe"
 	@echo "Copying dynamic libraries..."
-	@mkdir dist\x86_64-pc-windows-msvc
-	@cp target\x86_64-pc-windows-msvc\release\$(BIN_NAME).exe dist\x86_64-pc-windows-msvc
-	@cp target\x86_64-pc-windows-msvc\release\*.dll dist\x86_64-pc-windows-msvc\ 2>/dev/null || true
+	@mkdir dist\x86_64-pc-windows-msvc 2>NUL || echo
+	@copy /Y target\x86_64-pc-windows-msvc\release\$(BIN_NAME).exe dist\x86_64-pc-windows-msvc\ >NUL 2>&1 || echo
+	@xcopy /Y /I target\x86_64-pc-windows-msvc\release\*.dll dist\x86_64-pc-windows-msvc\ >NUL 2>&1 || echo
 	@echo "✓ Package ready: dist\x86_64-pc-windows-msvc\"
 
 windows-arm64:
 	@echo "==> Building for Windows ARM64"
-	@rustup target add aarch64-pc-windows-msvc >/dev/null 2>&1 || true
-	@ORT_STRATEGY=system ORT_LIB_LOCATION=$(MANIFEST_DIR)\target\aarch64-pc-windows-msvc\release cargo build --release --target aarch64-pc-windows-msvc
+	@rustup target add aarch64-pc-windows-msvc >NUL 2>&1 || echo
+	@cmd /C "set ORT_STRATEGY=system&& set ORT_LIB_LOCATION=$(MANIFEST_DIR)\\target\\aarch64-pc-windows-msvc\\release&& cargo build --release --target aarch64-pc-windows-msvc"
 	@echo "✓ Binary: target\aarch64-pc-windows-msvc\release\$(BIN_NAME).exe"
 	@echo "Copying dynamic libraries..."
-	@mkdir -p dist\aarch64-pc-windows-msvc
-	@cp target\aarch64-pc-windows-msvc\release\$(BIN_NAME).exe dist\aarch64-pc-windows-msvc
-	@cp target\aarch64-pc-windows-msvc\release\*.dll dist\aarch64-pc-windows-msvc\ 2>/dev/null || true
+	@mkdir dist\aarch64-pc-windows-msvc 2>NUL || echo
+	@copy /Y target\aarch64-pc-windows-msvc\release\$(BIN_NAME).exe dist\aarch64-pc-windows-msvc\ >NUL 2>&1 || echo
+	@xcopy /Y /I target\aarch64-pc-windows-msvc\release\*.dll dist\aarch64-pc-windows-msvc\ >NUL 2>&1 || echo
 	@echo "✓ Package ready: dist\aarch64-pc-windows-msvc\"
 
 clean:
