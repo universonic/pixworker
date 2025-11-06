@@ -4,11 +4,9 @@ use crate::utils::gimm::GimmVfi;
 use crate::utils::realesrgan::RealESRGAN;
 use anyhow::{Result, anyhow, bail};
 use candle_core::Device;
-use half::f16;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgb};
-use ndarray::stack;
-use ndarray::{Array, Axis, Ix3, s};
+use ndarray::{Array, Ix3};
 use scopeguard::defer;
 use std::fs;
 use std::io;
@@ -452,8 +450,7 @@ impl EnhanceOptions {
 
         for i in 0..frame_files.len() - 1 {
             // Load only current frame pair (memory efficient)
-            let frame_start: ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::Dim<[usize; 3]>> =
-                load_frame(&frame_files[i])?;
+            let frame_start = load_frame(&frame_files[i])?;
             let frame_end = load_frame(&frame_files[i + 1])?;
 
             if !self.silent && i % 10 == 0 {
@@ -464,13 +461,9 @@ impl EnhanceOptions {
             save_frame(&frame_start, &output_path, output_frame_idx)?;
             output_frame_idx += 1;
 
+            let num_interp = frame_multiplier as usize - 1;
             // Generate interpolated frames using GIMM wrapper
-            let interpolated_frames = self.interpolate_frames(
-                &gimm,
-                &frame_start,
-                &frame_end,
-                frame_multiplier as usize - 1,
-            )?;
+            let interpolated_frames = gimm.run(&frame_start, &frame_end, &num_interp)?;
 
             // Save interpolated frames and immediately release memory
             for interp_frame in interpolated_frames {
@@ -500,26 +493,8 @@ impl EnhanceOptions {
 
         fs::create_dir_all(output_dir)?;
 
-        // All Real-ESRGAN models are 4x upscale models
-        const MODEL_SCALE: f64 = 4.0;
-
         // Calculate upscale factor needed
         let target_scale = self.upscale.width as f64 / self.upscale.old_width as f64;
-
-        // Determine how many times we need to apply 4x upscaling
-        // For target_scale <= 4: apply once, then downscale if needed
-        // For 4 < target_scale <= 16: apply twice (4x then 4x = 16x), then downscale
-        // For 16 < target_scale: apply log4(target) times
-        let num_upscale_passes = if target_scale <= 1.0 {
-            // If target is smaller than input, just resize (no upscaling needed)
-            0
-        } else if target_scale <= MODEL_SCALE {
-            // Single pass is sufficient
-            1
-        } else {
-            // Multiple passes needed: calculate how many 4x passes to exceed target
-            (target_scale.log(MODEL_SCALE).ceil() as usize).max(1)
-        };
 
         // Determine model filename and whether it uses FP16
         let (model_filename, use_fp16) = match self.upscale_model {
@@ -562,17 +537,6 @@ impl EnhanceOptions {
                 self.upscale.width,
                 self.upscale.height
             );
-
-            if num_upscale_passes == 0 {
-                println!("Target is smaller than input, will only resize");
-            } else if num_upscale_passes > 1 {
-                println!(
-                    "Will apply {}x upscaling {} times (total {}x), then resize to target resolution",
-                    MODEL_SCALE as u32,
-                    num_upscale_passes,
-                    MODEL_SCALE.powi(num_upscale_passes as i32) as u32
-                );
-            }
         }
 
         // Collect all valid frame files first
@@ -624,6 +588,9 @@ impl EnhanceOptions {
         );
         let device = auto_device()?;
 
+        // Denoise strength: 1.0 favors detail, 0.0 favors denoise
+        let denoise_strength = 0.1f32; // Balanced default
+
         let model = RealESRGAN::from_model(&model_path, device, use_fp16, supports_denoise)?;
 
         for (idx, path) in frame_files.iter().enumerate() {
@@ -634,65 +601,7 @@ impl EnhanceOptions {
             // Load frame [H, W, C] with values in [0, 255]
             let mut current_frame = load_frame(&path)?;
 
-            // Apply upscaling multiple times if needed
-            // Each pass applies 4x upscaling, so 2 passes = 16x total
-            for pass in 0..num_upscale_passes {
-                if !self.silent && num_upscale_passes > 1 && idx == 0 {
-                    // Only show pass info for first frame to avoid spam
-                    let (h, w, _) = current_frame.dim();
-                    println!(
-                        "  Pass {}/{}: upscaling {}x{} → {}x{}",
-                        pass + 1,
-                        num_upscale_passes,
-                        w,
-                        h,
-                        w * 4,
-                        h * 4
-                    );
-                }
-
-                // Convert to CHW format [C, H, W] and normalize to [0, 1]
-                // Real-ESRGAN expects normalized input in [0, 1] range
-                let chw = self.hwc_to_chw(&current_frame)? / 255.0;
-
-                // Add batch dimension: [1, C, H, W]
-                let chw_batch = chw.view().insert_axis(Axis(0));
-
-                // Denoise strength: 1.0 favors detail, 0.0 favors denoise
-                let denoise_strength = 0.1f32; // Balanced default
-
-                // Run inference via RealESRGAN wrapper and convert to HWC [0,255]
-                current_frame = if use_fp16 {
-                    // FP16 path: convert input to fp16, run inference, convert output back
-                    let chw_fp16 = chw_batch.mapv(|v| f16::from_f32(v));
-                    let input_arr = chw_fp16.to_owned().into_dyn();
-
-                    // Prepare denoise tensor in fp16
-                    let denoise_array =
-                        Array::from_shape_vec((1,), vec![f16::from_f32(denoise_strength)])?;
-                    let denoise_arr = denoise_array.into_dyn();
-
-                    let output_4d = model.infer_fp16(input_arr, denoise_arr)?;
-                    let output_3d = output_4d.index_axis(Axis(0), 0);
-                    let hwc_view = output_3d.permuted_axes([1, 2, 0]);
-                    let hwc = hwc_view.as_standard_layout().into_owned();
-
-                    // Convert fp16 to f32 and scale to [0, 255]
-                    hwc.mapv(|v| (v.to_f32() * 255.0).clamp(0.0, 255.0))
-                } else {
-                    // FP32 path
-                    let input_arr = chw_batch.to_owned().into_dyn();
-                    let denoise_array = Array::from_shape_vec((1,), vec![denoise_strength])?;
-                    let denoise_arr = denoise_array.into_dyn();
-
-                    let output_4d = model.infer_fp32(input_arr, denoise_arr)?;
-                    let output_3d = output_4d.index_axis(Axis(0), 0);
-                    let hwc_view = output_3d.permuted_axes([1, 2, 0]);
-                    let hwc = hwc_view.as_standard_layout().into_owned();
-
-                    hwc.mapv(|v| (v * 255.0).clamp(0.0, 255.0))
-                };
-            }
+            current_frame = model.run(&current_frame, &target_scale, &denoise_strength)?;
 
             // Final resize to exact target dimensions
             let final_frame = self.resize_to_target(
@@ -712,233 +621,6 @@ impl EnhanceOptions {
         }
 
         Ok(())
-    }
-
-    /// Interpolate between two frames using the GIMMVFI model
-    ///
-    /// # Arguments
-    /// * `session` - ONNX Runtime session with loaded model
-    /// * `frame0` - First frame as ndarray [H, W, C] in RGB format, values [0, 255]
-    /// * `frame1` - Second frame as ndarray [H, W, C] in RGB format, values [0, 255]
-    /// * `num_interp` - Number of frames to interpolate between frame0 and frame1
-    ///
-    /// # Returns
-    /// Vector of interpolated frames as ndarray [H, W, C], values [0, 255]
-    fn interpolate_frames(
-        &self,
-        gimm: &GimmVfi,
-        frame0: &Array<f32, Ix3>,
-        frame1: &Array<f32, Ix3>,
-        num_interp: usize,
-    ) -> Result<Vec<Array<f32, Ix3>>> {
-        let (orig_height, orig_width, channels) = frame0.dim();
-        if channels != 3 {
-            bail!("Expected RGB frames with 3 channels, got {}", channels);
-        }
-
-        // Validate that both frames have the same dimensions
-        if frame1.dim() != (orig_height, orig_width, channels) {
-            bail!("Frame dimensions mismatch");
-        }
-
-        // Calculate padding to make dimensions divisible by 16 (FlowFormer requirement)
-        // FlowFormer uses patch_size=8 but has additional constraints requiring divisor=16
-        let divisor = 16;
-        let pad_h = ((orig_height + divisor - 1) / divisor) * divisor - orig_height;
-        let pad_w = ((orig_width + divisor - 1) / divisor) * divisor - orig_width;
-        let pad_top = pad_h / 2;
-        let pad_bottom = pad_h - pad_top;
-        let pad_left = pad_w / 2;
-        let pad_right = pad_w - pad_left;
-
-        let padded_height = orig_height + pad_h;
-        let padded_width = orig_width + pad_w;
-
-        // Pad frames using replication mode
-        let frame0_padded =
-            self.pad_frame_replicate(frame0, pad_top, pad_bottom, pad_left, pad_right)?;
-        let frame1_padded =
-            self.pad_frame_replicate(frame1, pad_top, pad_bottom, pad_left, pad_right)?;
-
-        // Use padded dimensions for processing
-        let (height, width) = (padded_height, padded_width);
-
-        // Convert frames from [H, W, C] to [C, H, W] and normalize to [0, 1]
-        let frame0_chw = self.hwc_to_chw(&frame0_padded)? / 255.0;
-        let frame1_chw = self.hwc_to_chw(&frame1_padded)? / 255.0;
-
-        // Stack frames to create input tensor [1, C, 2, H, W]
-        let frame0_batch = frame0_chw.view().insert_axis(Axis(0));
-        let frame1_batch = frame1_chw.view().insert_axis(Axis(0));
-        let img_xs = stack(Axis(2), &[frame0_batch, frame1_batch])?;
-
-        // Determine dtype based on model wrapper
-        let use_fp16 = gimm.use_fp16;
-        let img_xs_fp16 = use_fp16.then(|| img_xs.mapv(|value| f16::from_f32(value)));
-
-        // Generate all interpolated frames
-        let mut result_frames = Vec::with_capacity(num_interp);
-
-        for i in 0..num_interp {
-            // Calculate time value for this interpolation
-            let t_value = (i + 1) as f32 / (num_interp + 1) as f32;
-
-            // ================================================================
-            // Generate all inputs based on model precision
-            // This avoids unnecessary type conversions between fp16 and fp32
-            // ================================================================
-
-            // Note: ds_factor is now fixed at 1.0 inside the ONNX model
-            // No need to pass it as an input anymore
-
-            // Prepare inputs and run inference via GimmVfi wrapper
-            let padded_frame = if use_fp16 {
-                // FP16 path: img_xs and t are fp16, coord is ALWAYS fp32
-                let coord_array = self.generate_coord(1, height, width, t_value)
-                    .map_err(|e| anyhow!("Failed to generate coord: {}", e))?;
-
-                // Create t tensor in fp16
-                let t_array = Array::from_shape_vec((1,), vec![f16::from_f32(t_value)])?;
-
-                // Prepare owned arrays and convert to dynamic dims
-                let img_xs_arr = img_xs_fp16
-                    .as_ref()
-                    .expect("fp16 tensor available")
-                    .view()
-                    .to_owned()
-                    .into_dyn();
-                let coord_arr = coord_array.into_dyn();
-                let t_arr = t_array.into_dyn();
-
-                // Run model and get owned 4D output [1, C, H, W]
-                let output_4d = gimm.infer_fp16(img_xs_arr, coord_arr, t_arr)
-                    .map_err(|e| anyhow!("Failed to run inference: {}", e))?;
-
-                let output_3d = output_4d.index_axis(Axis(0), 0);
-                let hwc_view = output_3d.permuted_axes([1, 2, 0]);
-                let hwc = hwc_view.as_standard_layout().into_owned();
-
-                // Convert fp16 to f32 and scale to [0, 255]
-                hwc.mapv(|value| (value.to_f32() * 255.0).clamp(0.0, 255.0))
-            } else {
-                // FP32 path
-                let coord_array = self.generate_coord(1, height, width, t_value)?;
-                let t_array = Array::from_shape_vec((1,), vec![t_value])?;
-
-                let img_xs_arr = img_xs.view().to_owned().into_dyn();
-                let coord_arr = coord_array.into_dyn();
-                let t_arr = t_array.into_dyn();
-
-                let output_4d = gimm.infer_fp32(img_xs_arr, coord_arr, t_arr)
-                    .map_err(|e| anyhow!("Failed to run inference: {}", e))?;
-
-                let output_3d = output_4d.index_axis(Axis(0), 0);
-                let hwc_view = output_3d.permuted_axes([1, 2, 0]);
-                let hwc = hwc_view.as_standard_layout().into_owned();
-
-                hwc.mapv(|value| (value * 255.0).clamp(0.0, 255.0))
-            };
-
-            // Unpad the output frame back to original dimensions
-            let result_frame =
-                self.unpad_frame(&padded_frame, pad_top, pad_left, orig_height, orig_width)?;
-
-            result_frames.push(result_frame);
-        }
-
-        Ok(result_frames)
-    }
-
-    /// Generate coordinate tensor for GIMMVFI INR sampling in fp32
-    ///
-    /// # Arguments
-    /// * `batch_size` - Batch dimension size (typically 1)
-    /// * `height` - Spatial height dimension
-    /// * `width` - Spatial width dimension
-    /// * `t_value` - Temporal coordinate value in range [0, 1]
-    ///
-    /// # Returns
-    /// Coordinate tensor of shape [batch_size, 1, height, width, 3] in fp32
-    fn generate_coord(
-        &self,
-        batch_size: usize,
-        height: usize,
-        width: usize,
-        t_value: f32,
-    ) -> Result<Array<f32, ndarray::Dim<[usize; 5]>>> {
-        // CRITICAL: Coordinate generation must match Python's CoordSampler3D.shape2coordinate
-        // - t_value: NOT mapped to coord_range, used as-is (e.g., 0.5 for middle frame)
-        // - spatial (h, w): pixel centers mapped to coord_range [-1, 1]
-        //   Formula: coord = coord_range[0] + (coord_range[1] - coord_range[0]) * ((pixel + 0.5) / size)
-        //   For coord_range=[-1, 1]: coord = -1 + 2 * ((pixel + 0.5) / size)
-        Ok(Array::from_shape_fn(
-            (batch_size, 1, height, width, 3),
-            |(_, _, h, w, component)| match component {
-                0 => t_value, // t: raw value in [0, 1], NOT mapped to [-1, 1]
-                1 => -1.0 + 2.0 * ((h as f32 + 0.5) / height as f32), // y (h)
-                2 => -1.0 + 2.0 * ((w as f32 + 0.5) / width as f32), // x (w)
-                _ => unreachable!("coordinate component out of range"),
-            },
-        ))
-    }
-
-    /// Convert frame from HWC to CHW layout
-    fn hwc_to_chw(&self, frame: &Array<f32, Ix3>) -> Result<Array<f32, Ix3>> {
-        Ok(frame.view().permuted_axes([2, 0, 1]).to_owned())
-    }
-
-    /// Pad a frame using edge replication (similar to PyTorch's F.pad with mode='replicate')
-    fn pad_frame_replicate(
-        &self,
-        frame: &Array<f32, Ix3>,
-        pad_top: usize,
-        pad_bottom: usize,
-        pad_left: usize,
-        pad_right: usize,
-    ) -> Result<Array<f32, Ix3>> {
-        let (height, width, channels) = frame.dim();
-        let new_height = height + pad_top + pad_bottom;
-        let new_width = width + pad_left + pad_right;
-        Ok(Array::from_shape_fn(
-            (new_height, new_width, channels),
-            |(h, w, c)| {
-                let src_h = if h < pad_top {
-                    0
-                } else if h >= pad_top + height {
-                    height - 1
-                } else {
-                    h - pad_top
-                };
-
-                let src_w = if w < pad_left {
-                    0
-                } else if w >= pad_left + width {
-                    width - 1
-                } else {
-                    w - pad_left
-                };
-
-                frame[[src_h, src_w, c]]
-            },
-        ))
-    }
-
-    /// Remove padding from a frame to restore original dimensions
-    fn unpad_frame(
-        &self,
-        padded_frame: &Array<f32, Ix3>,
-        pad_top: usize,
-        pad_left: usize,
-        orig_height: usize,
-        orig_width: usize,
-    ) -> Result<Array<f32, Ix3>> {
-        Ok(padded_frame
-            .slice(s![
-                pad_top..pad_top + orig_height,
-                pad_left..pad_left + orig_width,
-                ..
-            ])
-            .to_owned())
     }
 
     /// Find VFI model file in workspace or model directory
