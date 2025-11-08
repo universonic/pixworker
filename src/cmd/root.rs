@@ -48,6 +48,7 @@ impl RootCmd {
                 output,
                 upscale,
                 upscale_model,
+                denoise,
                 vfi,
                 vfi_model,
                 silent,
@@ -56,6 +57,7 @@ impl RootCmd {
                 output,
                 upscale,
                 upscale_model,
+                denoise,
                 vfi,
                 vfi_model,
                 silent,
@@ -147,6 +149,10 @@ pub enum SubCommands {
         /// Specify the upscaling model. Supported models: "realesr-animevideov3" (default), "realesr-animevideov3-hf", "realesr-generalx4v3", "realesr-generalx4v3-hf", "realesrgan-x4plus", "realesrgan-x4plus-hf", "realesrgan-x4plus-anime", "realesrgan-x4plus-anime-hf".
         #[arg(long, value_name = "STRING", default_value = "realesr-animevideov3")]
         upscale_model: Option<String>,
+
+        /// Denoising strength for upscaling. Only meaningful while using "realesr-generalx4v3" or "realesr-generalx4v3-hf". Range: 0.0 (less denoise) to 1.0 (more denoise).
+        #[arg(short, long, value_name = "FLOAT32", default_value = "0.0")]
+        denoise: Option<f32>,
 
         /// Frame interpolation factor. Set to "1.0" to disable interpolation.
         /// You can specify values like "2.5" to convert 24fps to 60fps, or directly enter a target frame rate such as "60fps" for frame interpolation.

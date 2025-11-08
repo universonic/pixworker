@@ -1,38 +1,38 @@
 use anyhow::{Result, anyhow, bail};
-use candle_core::Device;
+use candle_core::{DType, Device, Tensor};
 use candle_onnx::onnx::ModelProto;
 use candle_onnx::{eval::Value as CValue, eval::simple_eval};
 use half::f16;
-use ndarray::stack;
-use ndarray::{Array, Axis, Ix1, Ix3, Ix4, Ix5, IxDyn, s};
 use std::collections::HashMap;
 use std::path::Path;
 
 pub struct GimmVfi {
     model: ModelProto,
     device: Device,
-    use_fp16: bool,
+    dtype: DType,
 }
 
 impl GimmVfi {
-    pub fn run(
+    pub fn inference(
         &self,
-        frame_start: &Array<f32, Ix3>,
-        frame_end: &Array<f32, Ix3>,
-        num_interp: &usize,
-    ) -> Result<Vec<Array<f32, Ix3>>> {
-        let (orig_height, orig_width, channels) = frame_start.dim();
-        if channels != 3 {
-            bail!("Expected RGB frames with 3 channels, got {}", channels);
+        frame_start: &Tensor,
+        frame_end: &Tensor,
+        num_interp: usize,
+    ) -> Result<Vec<Tensor>> {
+        let (c_start, h_start, w_start) = frame_start.dims3()?;
+        let (c_end, h_end, w_end) = frame_end.dims3()?;
+        
+        if c_start != 3 || c_end != 3 {
+            bail!("Expected 3 channels, got {} and {}", c_start, c_end);
         }
-
-        // Validate that both frames have the same dimensions
-        if frame_end.dim() != (orig_height, orig_width, channels) {
+        if (h_start, w_start) != (h_end, w_end) {
             bail!("Frame dimensions mismatch");
         }
 
-        // Calculate padding to make dimensions divisible by 16 (FlowFormer requirement)
-        // FlowFormer uses patch_size=8 but has additional constraints requiring divisor=16
+        let orig_height = h_start as usize;
+        let orig_width = w_start as usize;
+
+        // Calculate padding for divisibility by 16
         const DIVISOR: usize = 16;
         let pad_h = ((orig_height + DIVISOR - 1) / DIVISOR) * DIVISOR - orig_height;
         let pad_w = ((orig_width + DIVISOR - 1) / DIVISOR) * DIVISOR - orig_width;
@@ -44,94 +44,34 @@ impl GimmVfi {
         let padded_height = orig_height + pad_h;
         let padded_width = orig_width + pad_w;
 
-        // Pad frames using replication mode
-        let frame_start_padded: Array<f32, Ix3> =
-            self.pad_frame_replicate(frame_start, pad_top, pad_bottom, pad_left, pad_right)?;
-        let frame_end_padded: Array<f32, Ix3> =
-            self.pad_frame_replicate(frame_end, pad_top, pad_bottom, pad_left, pad_right)?;
+        // Pad frames
+        let frame_start_padded = self.pad_tensor_replicate(frame_start, pad_top, pad_bottom, pad_left, pad_right)?;
+        let frame_end_padded = self.pad_tensor_replicate(frame_end, pad_top, pad_bottom, pad_left, pad_right)?;
 
-        // Use padded dimensions for processing
-        let (height, width) = (padded_height, padded_width);
+        // Stack frames to [1, C, 2, H, W]
+        let img_xs = self.stack_frames_5d(&frame_start_padded, &frame_end_padded)?;
 
-        // Convert frames from [H, W, C] to [C, H, W] and normalize to [0, 1]
-        let frame_start_chw: Array<f32, Ix3> = self.hwc_to_chw(&frame_start_padded)? / 255.0;
-        let frame_end_chw: Array<f32, Ix3> = self.hwc_to_chw(&frame_end_padded)? / 255.0;
+        let mut result_frames = Vec::with_capacity(num_interp);
 
-        // Stack frames to create input tensor [1, C, 2, H, W]
-        let frame_start_batch = frame_start_chw.view().insert_axis(Axis(0));
-        let frame_end_batch = frame_end_chw.view().insert_axis(Axis(0));
-        let img_xs: Array<f32, Ix5> = stack(Axis(2), &[frame_start_batch, frame_end_batch])?;
-
-        // Determine dtype based on model wrapper
-        let img_xs_fp16 = self
-            .use_fp16
-            .then(|| img_xs.mapv(|value| f16::from_f32(value)));
-
-        // Generate all interpolated frames
-        let mut result_frames = Vec::with_capacity(*num_interp);
-
-        for i in 0..*num_interp {
-            // Calculate time value for this interpolation
+        for i in 0..num_interp {
             let t_value = (i + 1) as f32 / (num_interp + 1) as f32;
 
-            // ================================================================
-            // Generate all inputs based on model precision
-            // This avoids unnecessary type conversions between fp16 and fp32
-            // ================================================================
-
-            // Note: ds_factor is now fixed at 1.0 inside the ONNX model
-            // No need to pass it as an input anymore
-
-            // Prepare inputs and run inference via GimmVfi wrapper
-            let padded_frame = if self.use_fp16 {
-                // FP16 path: img_xs and t are fp16, coord is ALWAYS fp32
-                let coord_array = self
-                    .generate_coord(1, height, width, t_value)
-                    .map_err(|e| anyhow!("Failed to generate coord: {}", e))?;
-
-                // Create t tensor in fp16
-                let t_array = Array::from_shape_vec((1,), vec![f16::from_f32(t_value)])?;
-
-                // Prepare owned arrays and convert to dynamic dims
-                let img_xs_array = img_xs_fp16
-                    .as_ref()
-                    .expect("fp16 tensor available")
-                    .view()
-                    .to_owned();
-
-                // Run model and get owned 4D output [1, C, H, W]
-                let output_4d = self
-                    .infer_fp16(img_xs_array, coord_array, t_array)
-                    .map_err(|e| anyhow!("Failed to run inference: {}", e))?;
-
-                let output_3d = output_4d.index_axis(Axis(0), 0);
-                let hwc_view = output_3d.permuted_axes([1, 2, 0]);
-                let hwc = hwc_view.as_standard_layout().into_owned();
-
-                // Convert fp16 to f32 and scale to [0, 255]
-                hwc.mapv(|value| (value.to_f32() * 255.0).clamp(0.0, 255.0))
+            let padded_frame = if self.dtype == DType::F16 {
+                let coord = self.generate_coord_tensor(1, padded_height, padded_width, t_value)?;
+                let t = Tensor::full(f16::from_f32(t_value), 1, &self.device)?.to_dtype(DType::F16)?;
+                let img_xs_f16 = img_xs.to_dtype(DType::F16)?;
+                
+                let output_4d = self.infer_fp16(&img_xs_f16, &coord, &t)?;
+                output_4d.squeeze(0)?
             } else {
-                // FP32 path
-                let coord_array = self.generate_coord(1, height, width, t_value)?;
-                let t_array = Array::from_shape_vec((1,), vec![t_value])?;
-
-                let img_xs_array = img_xs.view().to_owned();
-
-                let output_4d = self
-                    .infer_fp32(img_xs_array, coord_array, t_array)
-                    .map_err(|e| anyhow!("Failed to run inference: {}", e))?;
-
-                let output_3d = output_4d.index_axis(Axis(0), 0);
-                let hwc_view = output_3d.permuted_axes([1, 2, 0]);
-                let hwc = hwc_view.as_standard_layout().into_owned();
-
-                hwc.mapv(|value| (value * 255.0).clamp(0.0, 255.0))
+                let coord = self.generate_coord_tensor(1, padded_height, padded_width, t_value)?;
+                let t = Tensor::full(t_value, 1, &self.device)?;
+                
+                let output_4d = self.infer_fp32(&img_xs, &coord, &t)?;
+                output_4d.squeeze(0)?
             };
 
-            // Unpad the output frame back to original dimensions
-            let result_frame =
-                self.unpad_frame(&padded_frame, pad_top, pad_left, orig_height, orig_width)?;
-
+            let result_frame = self.unpad_tensor(&padded_frame, pad_top, pad_left, orig_height, orig_width)?;
             result_frames.push(result_frame);
         }
 
@@ -149,17 +89,21 @@ impl GimmVfi {
         Ok(Self {
             model,
             device,
-            use_fp16,
+            dtype: if use_fp16 { DType::F16 } else { DType::F32 },
         })
     }
 
-    /// Run inference for FP32 inputs and return an owned 4D array [1, C, H, W]
+    pub fn device(&self) -> &Device {
+        &self.device
+    }
+
+    /// Run inference for FP32 inputs and return Tensor output [1, C, H, W]
     fn infer_fp32(
         &self,
-        img_xs: Array<f32, Ix5>,
-        coord: Array<f32, Ix5>,
-        t: Array<f32, Ix1>,
-    ) -> Result<Array<f32, Ix4>> {
+        img_xs: &Tensor,
+        coord: &Tensor,
+        t: &Tensor,
+    ) -> Result<Tensor> {
         // Build inputs map from model input names using the graph inputs
         let mut inputs: HashMap<String, CValue> = HashMap::new();
 
@@ -175,9 +119,9 @@ impl GimmVfi {
         {
             let name = vi.name.clone();
             let v = match idx {
-                0 => self.make_value_f32(img_xs.clone().into_dyn())?,
-                1 => self.make_value_f32(coord.clone().into_dyn())?,
-                2 => self.make_value_f32(t.clone().into_dyn())?,
+                0 => self.tensor_to_cvalue_f32(img_xs)?,
+                1 => self.tensor_to_cvalue_f32(coord)?,
+                2 => self.tensor_to_cvalue_f32(t)?,
                 _ => continue,
             };
             inputs.insert(name, v);
@@ -197,20 +141,19 @@ impl GimmVfi {
             .ok_or_else(|| anyhow!("Candle eval returned no output named {}", out_name))?;
 
         let dims = out_val.dims();
-        let flat: Vec<f32> = out_val.to_vec1()?; // flatten
+        let flat: Vec<f32> = out_val.to_vec1()?;
         let shape_vec: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
-        let arr = Array::from_shape_vec(shape_vec.clone(), flat)?;
-        let arr4 = arr.into_dimensionality::<Ix4>()?;
-        Ok(arr4)
+        let t_out = Tensor::from_vec(flat, shape_vec.as_slice(), &self.device)?;
+        Ok(t_out)
     }
 
-    /// Run inference for FP16 inputs and return an owned 4D array [1, C, H, W]
+    /// Run inference for FP16 inputs and return Tensor output [1, C, H, W]
     fn infer_fp16(
         &self,
-        img_xs: Array<f16, Ix5>,
-        coord: Array<f32, Ix5>, // coord stays fp32 per model requirement
-        t: Array<f16, Ix1>,
-    ) -> Result<Array<f16, Ix4>> {
+        img_xs: &Tensor,
+        coord: &Tensor,
+        t: &Tensor,
+    ) -> Result<Tensor> {
         // Build inputs map from model input names using the graph inputs
         let mut inputs: HashMap<String, CValue> = HashMap::new();
 
@@ -226,9 +169,9 @@ impl GimmVfi {
         {
             let name = vi.name.clone();
             let v = match idx {
-                0 => self.make_value_f16(img_xs.clone().into_dyn())?,
-                1 => self.make_value_f32(coord.clone().into_dyn())?,
-                2 => self.make_value_f16(t.clone().into_dyn())?,
+                0 => self.tensor_to_cvalue_f16(img_xs)?,
+                1 => self.tensor_to_cvalue_f32(coord)?,
+                2 => self.tensor_to_cvalue_f16(t)?,
                 _ => continue,
             };
             inputs.insert(name, v);
@@ -248,114 +191,130 @@ impl GimmVfi {
             .ok_or_else(|| anyhow!("Candle eval returned no output named {}", out_name))?;
 
         let dims = out_val.dims();
-        let flat: Vec<f16> = out_val.to_vec1()?; // flatten
+        let flat: Vec<f16> = out_val.to_vec1()?;
         let shape_vec: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
-        let arr = Array::from_shape_vec(shape_vec.clone(), flat)?;
-        let arr4 = arr.into_dimensionality::<Ix4>()?;
-        Ok(arr4)
+        let t_out = Tensor::from_vec(flat, shape_vec.as_slice(), &self.device)?;
+        Ok(t_out)
     }
 
-    // Convert ndarrays to flat Vec and build CValue (Tensor) for f32
-    fn make_value_f32(&self, a: Array<f32, IxDyn>) -> Result<CValue> {
-        let shape: Vec<usize> = a.shape().iter().map(|&d| d as usize).collect();
-        let data: Vec<f32> = a.into_iter().collect();
-        Ok(CValue::from_vec(data, shape.as_slice(), &self.device)?)
-    }
 
-    // Convert ndarrays to flat Vec and build CValue (Tensor) for f16
-    fn make_value_f16(&self, a: Array<f16, IxDyn>) -> Result<CValue> {
-        let shape: Vec<usize> = a.shape().iter().map(|&d| d as usize).collect();
-        let data: Vec<f16> = a.into_iter().collect();
-        Ok(CValue::from_vec(data, shape.as_slice(), &self.device)?)
-    }
-
-    fn pad_frame_replicate(
+    // Tensor helper methods
+    fn pad_tensor_replicate(
         &self,
-        frame: &Array<f32, Ix3>,
+        tensor: &Tensor,
         pad_top: usize,
         pad_bottom: usize,
         pad_left: usize,
         pad_right: usize,
-    ) -> Result<Array<f32, Ix3>> {
-        let (height, width, channels) = frame.dim();
-        let new_height = height + pad_top + pad_bottom;
-        let new_width = width + pad_left + pad_right;
-        Ok(Array::from_shape_fn(
-            (new_height, new_width, channels),
-            |(h, w, c)| {
-                let src_h = if h < pad_top {
-                    0
-                } else if h >= pad_top + height {
-                    height - 1
-                } else {
-                    h - pad_top
-                };
+    ) -> Result<Tensor> {
+        // tensor is [C, H, W], pad H and W dimensions
+        let (c, h, w) = tensor.dims3()?;
+        let new_h = h + pad_top + pad_bottom;
+        let new_w = w + pad_left + pad_right;
 
-                let src_w = if w < pad_left {
-                    0
-                } else if w >= pad_left + width {
-                    width - 1
-                } else {
-                    w - pad_left
-                };
-
-                frame[[src_h, src_w, c]]
-            },
-        ))
+        // Create output tensor filled with zeros, then copy values
+        let mut out_vec = vec![0.0_f32; (c * new_h * new_w) as usize];
+        
+        // Get input data
+        let input_data = tensor.to_dtype(DType::F32)?.flatten_all()?.to_vec1()?;
+        
+        // Copy with padding
+        for ch in 0..c as usize {
+            for y in 0..h as usize {
+                for x in 0..w as usize {
+                    let in_idx = (ch * (h as usize) * (w as usize)) + (y * (w as usize)) + x;
+                    let out_y = y + pad_top;
+                    let out_x = x + pad_left;
+                    let out_idx = (ch * (new_h as usize) * (new_w as usize)) + (out_y * (new_w as usize)) + out_x;
+                    out_vec[out_idx] = input_data[in_idx];
+                }
+            }
+        }
+        
+        let t = Tensor::from_vec(out_vec, (c as usize, new_h as usize, new_w as usize), &self.device)?;
+        Ok(t.to_dtype(tensor.dtype())?)
     }
 
-    fn hwc_to_chw(&self, frame: &Array<f32, Ix3>) -> Result<Array<f32, Ix3>> {
-        Ok(frame.view().permuted_axes([2, 0, 1]).to_owned())
+    fn stack_frames_5d(&self, frame1: &Tensor, frame2: &Tensor) -> Result<Tensor> {
+        // frames are [C, H, W], create [1, C, 2, H, W]
+        let (c, h, w) = frame1.dims3()?;
+        
+        let f1_data: Vec<f32> = frame1.to_dtype(DType::F32)?.flatten_all()?.to_vec1()?;
+        let f2_data: Vec<f32> = frame2.to_dtype(DType::F32)?.flatten_all()?.to_vec1()?;
+        
+        let mut out_vec = Vec::with_capacity(2 * (c * h * w) as usize);
+        out_vec.extend_from_slice(&f1_data);
+        out_vec.extend_from_slice(&f2_data);
+        
+        let t = Tensor::from_vec(out_vec, (1, c as usize, 2, h as usize, w as usize), &self.device)?;
+        Ok(t.to_dtype(self.dtype)?)
     }
 
-    /// Generate coordinate tensor for GIMMVFI INR sampling in fp32
-    ///
-    /// # Arguments
-    /// * `batch_size` - Batch dimension size (typically 1)
-    /// * `height` - Spatial height dimension
-    /// * `width` - Spatial width dimension
-    /// * `t_value` - Temporal coordinate value in range [0, 1]
-    ///
-    /// # Returns
-    /// Coordinate tensor of shape [batch_size, 1, height, width, 3] in fp32
-    fn generate_coord(
+    fn generate_coord_tensor(
         &self,
         batch_size: usize,
         height: usize,
         width: usize,
         t_value: f32,
-    ) -> Result<Array<f32, ndarray::Dim<[usize; 5]>>> {
-        // CRITICAL: Coordinate generation must match Python's CoordSampler3D.shape2coordinate
-        // - t_value: NOT mapped to coord_range, used as-is (e.g., 0.5 for middle frame)
-        // - spatial (h, w): pixel centers mapped to coord_range [-1, 1]
-        //   Formula: coord = coord_range[0] + (coord_range[1] - coord_range[0]) * ((pixel + 0.5) / size)
-        //   For coord_range=[-1, 1]: coord = -1 + 2 * ((pixel + 0.5) / size)
-        Ok(Array::from_shape_fn(
-            (batch_size, 1, height, width, 3),
-            |(_, _, h, w, component)| match component {
-                0 => t_value, // t: raw value in [0, 1], NOT mapped to [-1, 1]
-                1 => -1.0 + 2.0 * ((h as f32 + 0.5) / height as f32), // y (h)
-                2 => -1.0 + 2.0 * ((w as f32 + 0.5) / width as f32), // x (w)
-                _ => unreachable!("coordinate component out of range"),
-            },
-        ))
+    ) -> Result<Tensor> {
+        let mut coord_vec = vec![0.0_f32; batch_size * 1 * height * width * 3];
+        
+        for b in 0..batch_size {
+            for h in 0..height {
+                for w in 0..width {
+                    let idx = b * (1 * height * width * 3) + 0 * (height * width * 3) + (h * width * 3) + (w * 3);
+                    coord_vec[idx] = t_value; // t
+                    coord_vec[idx + 1] = -1.0 + 2.0 * ((h as f32 + 0.5) / height as f32); // y
+                    coord_vec[idx + 2] = -1.0 + 2.0 * ((w as f32 + 0.5) / width as f32); // x
+                }
+            }
+        }
+        
+        let t = Tensor::from_vec(coord_vec, (batch_size, 1, height, width, 3), &self.device)?;
+        Ok(t)
     }
 
-    /// Remove padding from a frame to restore original dimensions
-    fn unpad_frame(
+    fn unpad_tensor(
         &self,
-        padded_frame: &Array<f32, Ix3>,
+        tensor: &Tensor,
         pad_top: usize,
         pad_left: usize,
         orig_height: usize,
         orig_width: usize,
-    ) -> Result<Array<f32, Ix3>> {
-        Ok(padded_frame
-            .slice(s![
-                pad_top..pad_top + orig_height,
-                pad_left..pad_left + orig_width,
-                ..
-            ])
-            .to_owned())
+    ) -> Result<Tensor> {
+        // tensor is [C, H_padded, W_padded]
+        let (c, h, w) = tensor.dims3()?;
+        
+        let data: Vec<f32> = tensor.to_dtype(DType::F32)?.flatten_all()?.to_vec1()?;
+        let mut out_vec = Vec::with_capacity((c * orig_height * orig_width) as usize);
+        
+        for ch in 0..c as usize {
+            for y in 0..orig_height {
+                for x in 0..orig_width {
+                    let in_y = y + pad_top;
+                    let in_x = x + pad_left;
+                    let in_idx = (ch * (h as usize) * (w as usize)) + (in_y * (w as usize)) + in_x;
+                    out_vec.push(data[in_idx]);
+                }
+            }
+        }
+        
+        let t = Tensor::from_vec(out_vec, (c as usize, orig_height, orig_width), &self.device)?;
+        Ok(t.to_dtype(tensor.dtype())?)
+    }
+
+    fn tensor_to_cvalue_f32(&self, tensor: &Tensor) -> Result<CValue> {
+        let t = tensor.to_dtype(DType::F32)?;
+        let flat = t.flatten_all()?;
+        let data: Vec<f32> = flat.to_vec1()?;
+        let shape: Vec<usize> = t.shape().dims().to_vec();
+        Ok(CValue::from_vec(data, shape.as_slice(), &self.device)?)
+    }
+
+    fn tensor_to_cvalue_f16(&self, t: &Tensor) -> Result<CValue> {
+        let t_f16 = if t.dtype() != DType::F16 { t.to_dtype(DType::F16)? } else { t.to_owned() };
+        let flat: Vec<f16> = t_f16.flatten_all()?.to_vec1()?;
+        let shape: Vec<usize> = t_f16.shape().dims().to_vec();
+        Ok(CValue::from_vec(flat, shape.as_slice(), &self.device)?)
     }
 }

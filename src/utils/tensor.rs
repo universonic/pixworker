@@ -1,12 +1,10 @@
-use crate::utils::ffmpeg::ArchiveOptions;
-use crate::utils::ffmpeg::{ExtractOptions, FFProbe};
+use crate::utils::ffmpeg::{ArchiveOptions, ExtractOptions, FFProbe};
 use crate::utils::gimm::GimmVfi;
-use crate::utils::realesrgan::RealESRGAN;
+use crate::utils::realesrgan::{RRDBNet, SRVGGNetCompact, blend_balanced_frame};
 use anyhow::{Result, anyhow, bail};
-use candle_core::Device;
-use image::imageops::FilterType;
-use image::{DynamicImage, ImageBuffer, Rgb};
-use ndarray::{Array, Ix3};
+use candle_core::{DType, Device, Error, Tensor};
+use half::f16;
+use image::{DynamicImage, ImageBuffer, ImageReader};
 use scopeguard::defer;
 use std::fs;
 use std::io;
@@ -18,6 +16,7 @@ pub fn enhance(
     output: &Option<PathBuf>,
     upscale: &Option<String>,
     upscale_model: &Option<String>,
+    denoise: &Option<f32>,
     vfi: &Option<String>,
     vfi_model: &Option<String>,
     silent: &Option<bool>,
@@ -27,6 +26,7 @@ pub fn enhance(
         output,
         upscale,
         upscale_model,
+        denoise,
         vfi,
         vfi_model,
         silent,
@@ -40,6 +40,7 @@ pub struct EnhanceOptions {
     output: PathBuf,
     upscale: Upscale,
     upscale_model: UpscaleModel,
+    denoise: f32,
     vfi: VFI,
     vfi_model: VFIModel,
     silent: bool,
@@ -51,6 +52,7 @@ impl EnhanceOptions {
         output: PathBuf,
         upscale: Upscale,
         upscale_model: UpscaleModel,
+        denoise: f32,
         vfi: VFI,
         vfi_model: VFIModel,
         silent: bool,
@@ -60,6 +62,7 @@ impl EnhanceOptions {
             output,
             upscale,
             upscale_model,
+            denoise,
             vfi,
             vfi_model,
             silent,
@@ -71,6 +74,7 @@ impl EnhanceOptions {
         output: &Option<PathBuf>,
         upscale: &Option<String>,
         upscale_model: &Option<String>,
+        denoise: &Option<f32>,
         vfi: &Option<String>,
         vfi_model: &Option<String>,
         silent: &Option<bool>,
@@ -211,6 +215,11 @@ impl EnhanceOptions {
             None => UpscaleModel::RealESRAnimeVideoV3,
         };
 
+        let denoise = denoise.unwrap_or(0.0);
+        if denoise < 0.0 || denoise > 1.0 {
+            bail!("Denoise strength must be between 0.0 and 1.0");
+        }
+
         let vfi = match vfi {
             Some(vfi_str) => {
                 // Check if it's in "XXfps" format.
@@ -277,6 +286,7 @@ impl EnhanceOptions {
             output,
             upscale,
             upscale_model,
+            denoise,
             vfi,
             vfi_model,
             silent,
@@ -360,7 +370,7 @@ impl EnhanceOptions {
         );
         let device = auto_device()?;
 
-        let gimm = GimmVfi::from_model(&model_path, device, use_fp16)?;
+        let gimm = GimmVfi::from_model(&model_path, device.clone(), use_fp16)?;
 
         if !self.silent {
             println!("VFI model loaded successfully");
@@ -449,33 +459,44 @@ impl EnhanceOptions {
         let mut output_frame_idx = 0;
 
         for i in 0..frame_files.len() - 1 {
-            // Load only current frame pair (memory efficient)
-            let frame_start = load_frame(&frame_files[i])?;
-            let frame_end = load_frame(&frame_files[i + 1])?;
+            // Load frames as Tensor [C, H, W] with f32 values [0, 1]
+            let frame_start = load_image(&frame_files[i], &device)
+                .map_err(|e| anyhow!("Error loading frame: {}", e))?;
+            let frame_end = load_image(&frame_files[i + 1], &device)
+                .map_err(|e| anyhow!("Error loading frame: {}", e))?;
 
             if !self.silent && i % 10 == 0 {
                 println!("Processing frame pair {}/{}", i + 1, frame_files.len() - 1);
             }
 
-            // Save original frame
-            save_frame(&frame_start, &output_path, output_frame_idx)?;
+            // Save original frame (denormalize f16 [0,1] to u8 [0,255])
+            save_image(
+                &frame_start,
+                output_path.join(format!("{}.png", output_frame_idx)),
+            )?;
             output_frame_idx += 1;
 
             let num_interp = frame_multiplier as usize - 1;
-            // Generate interpolated frames using GIMM wrapper
-            let interpolated_frames = gimm.run(&frame_start, &frame_end, &num_interp)?;
+            // Generate interpolated frames using GIMM wrapper (Tensor-based)
+            let interpolated_frames = gimm.inference(&frame_start, &frame_end, num_interp)?;
 
             // Save interpolated frames and immediately release memory
-            for interp_frame in interpolated_frames {
-                save_frame(&interp_frame, &output_path, output_frame_idx)?;
+            for interp_tensor in interpolated_frames {
+                save_image(
+                    &interp_tensor,
+                    output_path.join(format!("{}.png", output_frame_idx)),
+                )?;
                 output_frame_idx += 1;
-                // interp_frame is dropped here, freeing memory
             }
         }
 
         // Save last frame
-        let last_frame = load_frame(frame_files.last().unwrap())?;
-        save_frame(&last_frame, &output_path, output_frame_idx)?;
+        let last_frame = load_image(frame_files.last().unwrap(), &device)
+            .map_err(|e| anyhow!("Error loading last frame: {}", e))?;
+        save_image(
+            &last_frame,
+            output_path.join(format!("{}.png", output_frame_idx)),
+        )?;
 
         if !self.silent {
             println!(
@@ -497,15 +518,27 @@ impl EnhanceOptions {
         let target_scale = self.upscale.width as f64 / self.upscale.old_width as f64;
 
         // Determine model filename and whether it uses FP16
-        let (model_filename, use_fp16) = match self.upscale_model {
-            UpscaleModel::RealESRAnimeVideoV3 => ("realesr-animevideov3_fp32.onnx", false),
-            UpscaleModel::RealESRAnimeVideoV3Hf => ("realesr-animevideov3_fp16.onnx", true),
-            UpscaleModel::RealESRGeneralx4v3 => ("realesr-general-x4v3_fp32.onnx", false),
-            UpscaleModel::RealESRGeneralx4v3Hf => ("realesr-general-x4v3_fp16.onnx", true),
-            UpscaleModel::RealESRGANx4Plus => ("RealESRGAN_x4plus_fp32.onnx", false),
-            UpscaleModel::RealESRGANx4PlusHf => ("RealESRGAN_x4plus_fp16.onnx", true),
-            UpscaleModel::RealESRGANx4PlusAnime => ("RealESRGAN_x4plus_anime_6B_fp32.onnx", false),
-            UpscaleModel::RealESRGANx4PlusAnimeHf => ("RealESRGAN_x4plus_anime_6B_fp16.onnx", true),
+        let (model_filename, dtype) = match self.upscale_model {
+            UpscaleModel::RealESRAnimeVideoV3 => {
+                ("realesr-animevideov3_fp32.safetensors", DType::F32)
+            }
+            UpscaleModel::RealESRAnimeVideoV3Hf => {
+                ("realesr-animevideov3_fp16.safetensors", DType::F16)
+            }
+            UpscaleModel::RealESRGeneralx4v3 => {
+                ("realesr-general-x4v3_fp32.safetensors", DType::F32)
+            }
+            UpscaleModel::RealESRGeneralx4v3Hf => {
+                ("realesr-general-x4v3_fp16.safetensors", DType::F16)
+            }
+            UpscaleModel::RealESRGANx4Plus => ("RealESRGAN_x4plus_fp32.safetensors", DType::F32),
+            UpscaleModel::RealESRGANx4PlusHf => ("RealESRGAN_x4plus_fp16.safetensors", DType::F16),
+            UpscaleModel::RealESRGANx4PlusAnime => {
+                ("RealESRGAN_x4plus_anime_6B_fp32.safetensors", DType::F32)
+            }
+            UpscaleModel::RealESRGANx4PlusAnimeHf => {
+                ("RealESRGAN_x4plus_anime_6B_fp16.safetensors", DType::F16)
+            }
         };
 
         let model_path = self.find_upscale_model(model_filename)?;
@@ -581,36 +614,75 @@ impl EnhanceOptions {
             println!("Processing {} frames for upscaling...", frame_files.len());
         }
 
-        // Wrap session in RealESRGAN helper
-        let supports_denoise = matches!(
-            self.upscale_model,
-            UpscaleModel::RealESRGeneralx4v3 | UpscaleModel::RealESRGeneralx4v3Hf
-        );
+        // Load model using the new Candle-based API
         let device = auto_device()?;
 
-        // Denoise strength: 1.0 favors detail, 0.0 favors denoise
-        let denoise_strength = 0.1f32; // Balanced default
+        // Auto-detect architecture and load model
+        let model = match self.upscale_model {
+            UpscaleModel::RealESRGANx4Plus
+            | UpscaleModel::RealESRGANx4PlusHf
+            | UpscaleModel::RealESRGANx4PlusAnime
+            | UpscaleModel::RealESRGANx4PlusAnimeHf => {
+                // RRDBNet model
+                RRDBNet::from_model(&model_path, device.clone(), dtype)?
+            }
+            UpscaleModel::RealESRAnimeVideoV3
+            | UpscaleModel::RealESRAnimeVideoV3Hf
+            | UpscaleModel::RealESRGeneralx4v3
+            | UpscaleModel::RealESRGeneralx4v3Hf => {
+                // SRVGGNetCompact model
+                SRVGGNetCompact::from_model(&model_path, device.clone(), dtype)?
+            }
+        };
 
-        let model = RealESRGAN::from_model(&model_path, device, use_fp16, supports_denoise)?;
+        // Load denoise model if needed
+        let denoise_model = if self.denoise > 0.0
+            && (self.upscale_model == UpscaleModel::RealESRGeneralx4v3
+                || self.upscale_model == UpscaleModel::RealESRGeneralx4v3Hf)
+        {
+            let denoise_model_filename = if dtype == DType::F16 {
+                "realesr-general-wdn-x4v3_fp16.safetensors"
+            } else {
+                "realesr-general-wdn-x4v3_fp32.safetensors"
+            };
+            let denoise_model_path = self.find_upscale_model(denoise_model_filename)?;
+            Some(SRVGGNetCompact::from_model(
+                &denoise_model_path,
+                device.clone(),
+                dtype,
+            )?)
+        } else {
+            None
+        };
 
         for (idx, path) in frame_files.iter().enumerate() {
             if !self.silent && idx % 10 == 0 {
                 println!("Upscaling frame {}/{}", idx + 1, frame_files.len());
             }
 
-            // Load frame [H, W, C] with values in [0, 255]
-            let mut current_frame = load_frame(&path)?;
+            // Load frame as Tensor [C, H, W] with f16 values [0.0, 1.0]
+            let tensor =
+                load_image(&path, &device).map_err(|e| anyhow!("Error loading image: {}", e))?;
 
-            current_frame = model.run(&current_frame, &target_scale, &denoise_strength)?;
+            // Run inference: Tensor [C, H, W] → [C, 4H, 4W]
+            let mut upscaled_tensor = model.inference(&tensor, &target_scale)?;
 
-            // Final resize to exact target dimensions
-            let final_frame = self.resize_to_target(
-                &current_frame,
-                self.upscale.width as usize,
-                self.upscale.height as usize,
-            )?;
+            // Apply denoise if model is available
+            if let Some(ref denoise_model) = denoise_model {
+                let denoised_tensor = denoise_model.inference(&tensor, &target_scale)?;
+                upscaled_tensor =
+                    blend_balanced_frame(&upscaled_tensor, &denoised_tensor, self.denoise)?;
+            }
 
-            save_frame(&final_frame, &output_dir.to_path_buf(), idx)?;
+            // Save resized tensor directly
+            let output_path = output_dir.join(format!("{}.png", idx));
+            resize_and_save_image(
+                &upscaled_tensor,
+                &output_path,
+                self.upscale.height,
+                self.upscale.width,
+            )
+            .map_err(|e| anyhow!("Error saving image: {}", e))?;
         }
 
         if !self.silent {
@@ -770,64 +842,6 @@ impl EnhanceOptions {
             filename
         )
     }
-
-    fn resize_to_target(
-        &self,
-        frame: &Array<f32, Ix3>,
-        width: usize,
-        height: usize,
-    ) -> Result<Array<f32, Ix3>> {
-        let (current_h, current_w, _) = frame.dim();
-        if current_h == height && current_w == width {
-            return Ok(frame.clone());
-        }
-
-        let frame_u8_arr = frame.mapv(|v| v.clamp(0.0, 255.0) as u8);
-        // capture shape/strides before consuming the array
-        let shape = frame_u8_arr.dim();
-        let strides = frame_u8_arr.strides().to_vec();
-        let (raw_vec, offset_opt) = if frame_u8_arr.is_standard_layout() {
-            frame_u8_arr.into_raw_vec_and_offset()
-        } else {
-            // Non-contiguous: make a contiguous copy and then take its raw vec
-            let contiguous = frame_u8_arr.to_owned();
-            contiguous.into_raw_vec_and_offset()
-        };
-
-        let rgb_buffer = if offset_opt.unwrap_or(0) == 0 {
-            raw_vec
-        } else {
-            // Reconstruct contiguous HWC ordering using shape and strides
-            let (h, w, c) = (shape.0, shape.1, shape.2);
-            let offset = offset_opt.unwrap();
-            let mut contiguous = Vec::with_capacity(h * w * c);
-            for i in 0..h {
-                for j in 0..w {
-                    for k in 0..c {
-                        let raw_idx = (offset as isize
-                            + (i as isize) * strides[0]
-                            + (j as isize) * strides[1]
-                            + (k as isize) * strides[2])
-                            as usize;
-                        contiguous.push(raw_vec[raw_idx]);
-                    }
-                }
-            }
-            contiguous
-        };
-        let image =
-            ImageBuffer::<Rgb<u8>, _>::from_raw(current_w as u32, current_h as u32, rgb_buffer)
-                .ok_or_else(|| anyhow!("Failed to create image buffer for resizing"))?;
-
-        let resized = DynamicImage::ImageRgb8(image)
-            .resize_exact(width as u32, height as u32, FilterType::Lanczos3)
-            .to_rgb8();
-
-        let data: Vec<f32> = resized.into_raw().into_iter().map(|v| v as f32).collect();
-        let frame = Array::from_shape_vec((height, width, 3), data)
-            .map_err(|e| anyhow!("Failed to create shape array from frame: {}", e))?;
-        Ok(frame)
-    }
 }
 
 pub struct Upscale {
@@ -837,22 +851,25 @@ pub struct Upscale {
     pub height: u64,
 }
 
+#[derive(PartialEq)]
 pub enum UpscaleModel {
-    // https://huggingface.co/universonic/RealESRGAN/resolve/main/realesr-animevideov3_fp32.onnx
+    // https://huggingface.co/universonic/RealESRGAN/resolve/main/realesr-animevideov3_fp32.safetensors
     RealESRAnimeVideoV3,
-    // https://huggingface.co/universonic/RealESRGAN/resolve/main/realesr-animevideov3_fp16.onnx
+    // https://huggingface.co/universonic/RealESRGAN/resolve/main/realesr-animevideov3_fp16.safetensors
     RealESRAnimeVideoV3Hf,
-    // https://huggingface.co/universonic/RealESRGAN/resolve/main/realesr-general-x4v3_fp32.onnx
+    // https://huggingface.co/universonic/RealESRGAN/resolve/main/realesr-general-x4v3_fp32.safetensors
+    // https://huggingface.co/universonic/RealESRGAN/resolve/main/realesr-general-wdn-x4v3_fp32.safetensors
     RealESRGeneralx4v3,
-    // https://huggingface.co/universonic/RealESRGAN/resolve/main/realesr-general-x4v3_fp16.onnx
+    // https://huggingface.co/universonic/RealESRGAN/resolve/main/realesr-general-x4v3_fp16.safetensors
+    // https://huggingface.co/universonic/RealESRGAN/resolve/main/realesr-general-wdn-x4v3_fp16.safetensors
     RealESRGeneralx4v3Hf,
-    // https://huggingface.co/universonic/RealESRGAN/resolve/main/RealESRGAN_x4plus_fp32.onnx
+    // https://huggingface.co/universonic/RealESRGAN/resolve/main/RealESRGAN_x4plus_fp32.safetensors
     RealESRGANx4Plus,
-    // https://huggingface.co/universonic/RealESRGAN/resolve/main/RealESRGAN_x4plus_fp16.onnx
+    // https://huggingface.co/universonic/RealESRGAN/resolve/main/RealESRGAN_x4plus_fp16.safetensors
     RealESRGANx4PlusHf,
-    // https://huggingface.co/universonic/RealESRGAN/resolve/main/RealESRGAN_x4plus_anime_6B_fp32.onnx
+    // https://huggingface.co/universonic/RealESRGAN/resolve/main/RealESRGAN_x4plus_anime_6B_fp32.safetensors
     RealESRGANx4PlusAnime,
-    // https://huggingface.co/universonic/RealESRGAN/resolve/main/RealESRGAN_x4plus_anime_6B_fp16.onnx
+    // https://huggingface.co/universonic/RealESRGAN/resolve/main/RealESRGAN_x4plus_anime_6B_fp16.safetensors
     RealESRGANx4PlusAnimeHf,
 }
 
@@ -872,71 +889,111 @@ pub enum VFIModel {
     GimmVfiRPHf,
 }
 
-/// Load a single frame from disk into memory as ndarray [H, W, C] with f32 values [0, 255]
-fn load_frame(path: &PathBuf) -> Result<Array<f32, Ix3>> {
-    let img = image::open(path)?.to_rgb8();
+/// Convert a DynamicImage to a Candle Tensor [C, H, W] with f16 values [0.0, 1.0] (normalized)
+pub fn image_to_tensor(img: &DynamicImage, device: &Device) -> Result<Tensor> {
+    let img = img.to_rgb8();
     let (width, height) = img.dimensions();
-
-    let data: Vec<f32> = img
+    // Convert u8 to f16 and normalize to [0.0, 1.0]
+    let data: Vec<f16> = img
         .into_raw()
         .into_iter()
-        .map(|value| value as f32)
+        .map(|v| f16::from_f32(v as f32 / 255.0))
         .collect();
-    let frame = Array::from_shape_vec((height as usize, width as usize, 3), data)
-        .map_err(|e| anyhow!("Failed to create shape array from frame: {}", e))?;
-    Ok(frame)
+    let data =
+        Tensor::from_vec(data, (height as usize, width as usize, 3), device)?.permute((2, 0, 1))?;
+    Ok(data)
 }
 
-/// Save a frame to disk as PNG
-fn save_frame(frame: &Array<f32, Ix3>, output_dir: &PathBuf, frame_idx: usize) -> Result<()> {
-    let (height, width, _channels) = frame.dim();
+/// Convert a Candle Tensor [C, H, W] with f16 values [0.0, 1.0] (normalized) to a DynamicImage
+///
+/// # Arguments
+/// * `img` - A tensor of shape [3, H, W] with f16 values in range [0.0, 1.0]
+///
+/// # Returns
+/// A DynamicImage with RGB8 format (values [0, 255])
+pub fn tensor_to_image(img: &Tensor) -> Result<DynamicImage> {
+    let (channel, height, width) = img.dims3()?;
+    if channel != 3 {
+        bail!(
+            "tensor_to_image expects an input of shape (3, height, width), got ({}, {}, {})",
+            channel,
+            height,
+            width
+        )
+    }
 
-    // CRITICAL: Ensure array is in standard (contiguous) layout before converting to raw buffer
-    // After permuted_axes(), the array may not be contiguous, causing incorrect memory layout
-    let frame_owned = frame.to_owned();
+    // Permute from CHW to HWC and flatten to 1D
+    let img = img.permute((1, 2, 0))?.flatten_all()?;
 
-    // Convert f32 [0, 255] to contiguous u8 buffer in HWC (row-major) order
-    let frame_u8 = frame_owned.mapv(|x| x.clamp(0.0, 255.0) as u8);
-    // capture shape/strides before consuming the array
-    let shape = frame_u8.dim();
-    let strides = frame_u8.strides().to_vec();
-    let (raw_vec, offset_opt) = if frame_u8.is_standard_layout() {
-        frame_u8.into_raw_vec_and_offset()
-    } else {
-        let contiguous = frame_u8.to_owned();
-        contiguous.into_raw_vec_and_offset()
-    };
+    // Convert f16 to u8: denormalize from [0.0, 1.0] to [0, 255]
+    let pixels_f16: Vec<f16> = img.to_vec1()?;
+    let pixels: Vec<u8> = pixels_f16
+        .into_iter()
+        .map(|v| (v.to_f32() * 255.0).round().clamp(0.0, 255.0) as u8)
+        .collect();
 
-    let rgb_buffer = if offset_opt.unwrap_or(0) == 0 {
-        raw_vec
-    } else {
-        // Non-zero offset: reconstruct contiguous logical data (H, W, C)
-        let (h, w, c) = (shape.0, shape.1, shape.2);
-        let offset = offset_opt.unwrap();
-        let mut contiguous = Vec::with_capacity(h * w * c);
-        for i in 0..h {
-            for j in 0..w {
-                for k in 0..c {
-                    let raw_idx = (offset as isize
-                        + (i as isize) * strides[0]
-                        + (j as isize) * strides[1]
-                        + (k as isize) * strides[2]) as usize;
-                    contiguous.push(raw_vec[raw_idx]);
-                }
-            }
-        }
-        contiguous
-    };
-
-    let output_path = output_dir.join(format!("{}.png", frame_idx));
-    image::save_buffer(
-        output_path,
-        &rgb_buffer,
+    let image: ImageBuffer<image::Rgb<u8>, Vec<u8>> = match ImageBuffer::from_raw(
         width as u32,
         height as u32,
-        image::ColorType::Rgb8,
-    )?;
+        pixels,
+    ) {
+        Some(image) => image,
+        None => bail!(
+            "error converting tensor to image: failed to create ImageBuffer with dimensions {}x{}",
+            width,
+            height
+        ),
+    };
+    Ok(DynamicImage::ImageRgb8(image))
+}
 
+/// Load an image from disk into a Candle Tensor [C, H, W] with f16 values [0.0, 1.0] (normalized)
+pub fn load_image<P: AsRef<Path>>(p: P, device: &Device) -> Result<Tensor> {
+    let img = ImageReader::open(p)?.decode().map_err(Error::wrap)?;
+    let (height, width) = (img.height() as usize, img.width() as usize);
+    let img = img.to_rgb8();
+    let data = img
+        .into_raw()
+        .into_iter()
+        .map(|value| f16::from_f32(value as f32 / 255.0))
+        .collect();
+    let data = Tensor::from_vec(data, (height, width, 3), device)?.permute((2, 0, 1))?;
+    Ok(data)
+}
+
+/// Resizes an image tensor and saves it to disk using the image crate
+/// Input expects shape [C, H, W] with f16 values in range [0.0, 1.0] (normalized)
+pub fn resize_and_save_image<P: AsRef<Path>>(
+    img: &Tensor,
+    to: P,
+    new_height: u64,
+    new_width: u64,
+) -> Result<()> {
+    let img = if img.dtype() != DType::F16 {
+        img.to_dtype(DType::F16)?
+    } else {
+        img.to_owned()
+    };
+    tensor_to_image(&img)?
+        .resize(
+            new_height as u32,
+            new_width as u32,
+            image::imageops::Lanczos3,
+        )
+        .save(to)
+        .map_err(Error::wrap)?;
+    Ok(())
+}
+
+/// Saves an image to disk using the image crate
+/// Input expects shape [C, H, W] with f16 values in range [0.0, 1.0] (normalized)
+pub fn save_image<P: AsRef<Path>>(img: &Tensor, to: P) -> Result<()> {
+    let img = if img.dtype() != DType::F16 {
+        img.to_dtype(DType::F16)?
+    } else {
+        img.to_owned()
+    };
+    tensor_to_image(&img)?.save(to).map_err(Error::wrap)?;
     Ok(())
 }
 
