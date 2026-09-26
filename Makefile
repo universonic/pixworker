@@ -15,7 +15,6 @@ UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Windows_NT)
     # Building on Windows - include all targets
     TARGETS := \
-        x86_64-apple-darwin \
         aarch64-apple-darwin \
         x86_64-unknown-linux-gnu \
         aarch64-unknown-linux-gnu \
@@ -24,14 +23,12 @@ ifeq ($(UNAME_S),Windows_NT)
 else ifeq ($(UNAME_S),Darwin)
     # Building on macOS - exclude Windows targets (ring crate requires native MSVC)
     TARGETS := \
-        x86_64-apple-darwin \
         aarch64-apple-darwin \
         x86_64-unknown-linux-gnu \
         aarch64-unknown-linux-gnu
 else
     # Building on Linux - exclude Windows targets (ring crate requires native MSVC)
     TARGETS := \
-        x86_64-apple-darwin \
         aarch64-apple-darwin \
         x86_64-unknown-linux-gnu \
         aarch64-unknown-linux-gnu
@@ -41,7 +38,7 @@ BIN_NAME := pixworker
 
 # Individual target phony declarations
 .PHONY: all dist add-targets build-targets collect clean help
-.PHONY: macos-x64 macos-arm64 linux-x64 linux-arm64 windows-x64 windows-arm64
+.PHONY: macos-arm64 linux-x64 linux-arm64 windows-x64 windows-arm64
 
 all: build-targets
 
@@ -60,7 +57,6 @@ help:
 	@echo "  make clean          - cargo clean"
 	@echo ""
 	@echo "Individual platform targets:"
-	@echo "  make macos-x64      - Build for x86_64-apple-darwin"
 	@echo "  make macos-arm64    - Build for aarch64-apple-darwin"
 	@echo "  make linux-x64      - Build for x86_64-unknown-linux-gnu"
 	@echo "  make linux-arm64    - Build for aarch64-unknown-linux-gnu"
@@ -79,18 +75,18 @@ add-targets:
 		echo "done"; \
 	done
 
-## Build all targets (best-effort). Note: cross-compiling to MSVC from non-Windows hosts usually fails
-## unless a cross-compiler / toolchain is available; failures are reported but build continues.
+## Build all targets; report all failures and fail the aggregate target.
 build-targets: add-targets
 	@echo "==> Building targets (this will take a while)"
-	@for t in $(TARGETS); do \
+	@failed=0; for t in $(TARGETS); do \
 		echo "-- Building for $$t"; \
-		if cargo build --release --target $$t; then \
+		if cargo build --release --locked --target $$t; then \
 			echo "   ok: $$t"; \
 		else \
 			echo "   FAILED: $$t (see cargo output)"; \
+			failed=1; \
 		fi; \
-	done
+	done; exit $$failed
 
 ## Collect built binaries and dynamic libraries into dist/<triple>/
 collect:
@@ -124,17 +120,6 @@ collect:
 dist: build-targets collect
 
 ## Individual target builds
-macos-x64:
-	@echo "==> Building for macOS x86_64"
-	@rustup target add x86_64-apple-darwin >/dev/null 2>&1 || true
-	@cargo build --release --target x86_64-apple-darwin
-	@echo "✓ Binary: target/x86_64-apple-darwin/release/$(BIN_NAME)"
-	@echo "Copying dynamic libraries..."
-	@mkdir -p dist/x86_64-apple-darwin
-	@cp target/x86_64-apple-darwin/release/$(BIN_NAME) dist/x86_64-apple-darwin/
-	@cp target/x86_64-apple-darwin/release/*.dylib dist/x86_64-apple-darwin/ 2>/dev/null || true
-	@echo "✓ Package ready: dist/x86_64-apple-darwin/"
-
 macos-arm64:
 	@echo "==> Building for macOS ARM64"
 	@rustup target add aarch64-apple-darwin >/dev/null 2>&1 || true

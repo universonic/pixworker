@@ -9,15 +9,15 @@
 - **帧插值 (VFI)**: 使用 GIMM-VFI 模型提升视频帧率，让视频更流畅
 - **分辨率放大 (Upscale)**: 使用 Real-ESRGAN 模型进行 4x 或更高倍数的视频放大
 - **多平台加速**: 
-  - macOS: CoreML 加速
-  - Linux: CUDA / TensorRT 加速
-  - Windows: CUDA / TensorRT acceleration
+  - macOS ARM64: CoreML 加速
+  - Linux / Windows x86_64: CUDA 13 / TensorRT 加速 (CUDA 13.2+、cuDNN 9.23+)
+  - Linux / Windows ARM64: CPU 推理
 - **NTSC 视频处理**: 支持隔行扫描视频的去隔行处理
 
 ## 编译环境要求
 
 ### 基础要求
-- **Rust**: 最新稳定版 (通过 [rustup](https://rustup.rs/) 安装)
+- **Rust**: 1.88 或更新版本 (通过 [rustup](https://rustup.rs/) 安装)
 - **Make**: 用于构建脚本
 
 ### 平台特定要求
@@ -62,10 +62,11 @@ make debug
 make help
 
 # 编译特定平台
-make macos-x64      # macOS x86_64
 make macos-arm64    # macOS Apple Silicon
 make linux-x64      # Linux x86_64
 make linux-arm64    # Linux ARM64
+make windows-x64    # Windows x86_64 (Windows 主机)
+make windows-arm64  # Windows ARM64 (Windows 主机)
 
 # 编译所有平台并打包
 make dist

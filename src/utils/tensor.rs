@@ -1,22 +1,36 @@
 use crate::utils::ffmpeg::ArchiveOptions;
 use crate::utils::ffmpeg::{ExtractOptions, FFProbe};
+use crate::utils::ntsc::NTSC;
 use anyhow::{Result, bail};
 use half::f16;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageBuffer, Rgb};
-use ndarray::{stack, Array, Axis, Ix3, Ix4, s};
-#[cfg(target_os = "macos")]
-use ort::execution_providers::CoreMLExecutionProvider;
-use ort::execution_providers::ExecutionProvider;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
-use ort::execution_providers::{CUDAExecutionProvider, TensorRTExecutionProvider};
+use ndarray::{Array, Axis, Ix3, Ix4, s, stack};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use ort::ep::CoreML as CoreMLExecutionProvider;
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(
+        any(target_os = "linux", target_os = "windows"),
+        target_arch = "x86_64"
+    )
+))]
+use ort::ep::ExecutionProvider;
+#[cfg(all(
+    any(target_os = "linux", target_os = "windows"),
+    target_arch = "x86_64"
+))]
+use ort::ep::{CUDA as CUDAExecutionProvider, TensorRT as TensorRTExecutionProvider};
 use ort::session::builder::GraphOptimizationLevel;
-use ort::{session::Session, value::{Tensor, Value}};
-use scopeguard::defer;
+use ort::{
+    session::Session,
+    value::{Tensor, TensorRef, Value},
+};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::thread;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
 pub fn enhance(
@@ -215,6 +229,7 @@ impl EnhanceOptions {
             None => UpscaleModel::RealESRAnimeVideoV3,
         };
 
+        let old_fps = info.r_frame_rate.unwrap();
         let vfi = match vfi {
             Some(vfi_str) => {
                 // Check if it's in "XXfps" format.
@@ -225,38 +240,54 @@ impl EnhanceOptions {
                         .parse::<u64>()
                         .map_err(|_| anyhow::anyhow!("Invalid fps format: {}", vfi_str))?;
 
-                    let old_fps = info.r_frame_rate.unwrap().as_strict_fps();
-                    if fps != old_fps && fps < old_fps * 2 {
-                        bail!("Target FPS must be at least 2x the original FPS for interpolation");
-                    }
-
+                    let nominal = old_fps.to_fps().round() as u64;
+                    let target = old_fps
+                        .scaled(fps, nominal)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid target FPS"))?;
                     VFI {
-                        old_fps: old_fps,
-                        fps,
+                        old_fps,
+                        fps: target,
                     }
                 // Otherwise, treat it as a scaling factor.
                 } else {
-                    let factor = vfi_str
-                        .parse::<f64>()
-                        .map_err(|_| anyhow::anyhow!("Invalid VFI factor: {}", vfi_str))?;
-
-                    if factor != 1.0 && factor < 2.0 {
-                        bail!("Target FPS must be at least 2x the original FPS for interpolation");
-                    }
-
-                    let old_fps = info.r_frame_rate.unwrap().as_strict_fps();
-
+                    let (whole, decimal) = vfi_str.split_once('.').unwrap_or((&vfi_str, ""));
+                    let denominator = 10u64
+                        .checked_pow(decimal.len().try_into()?)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid VFI factor: {}", vfi_str))?;
+                    let numerator = whole
+                        .parse::<u64>()?
+                        .checked_mul(denominator)
+                        .and_then(|v| {
+                            if decimal.is_empty() {
+                                Some(v)
+                            } else {
+                                decimal
+                                    .parse::<u64>()
+                                    .ok()
+                                    .and_then(|fraction| v.checked_add(fraction))
+                            }
+                        })
+                        .ok_or_else(|| anyhow::anyhow!("Invalid VFI factor: {}", vfi_str))?;
+                    let target = old_fps
+                        .scaled(numerator, denominator)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid VFI factor: {}", vfi_str))?;
                     VFI {
-                        old_fps: old_fps,
-                        fps: (old_fps as f64 * factor) as u64,
+                        old_fps,
+                        fps: target,
                     }
                 }
             }
             None => VFI {
-                old_fps: info.r_frame_rate.unwrap().as_strict_fps(),
-                fps: 30,
+                old_fps,
+                fps: old_fps,
             },
         };
+        if vfi.fps != vfi.old_fps
+            && (vfi.fps.num as u128 * (vfi.old_fps.den as u128)
+                < 2 * vfi.old_fps.num as u128 * vfi.fps.den as u128)
+        {
+            bail!("Target FPS must be at least 2x the original FPS for interpolation");
+        }
 
         let vfi_model = match vfi_model {
             Some(model_name) => {
@@ -292,20 +323,18 @@ impl EnhanceOptions {
             tracing_subscriber::fmt::init();
         }
 
-        let mut tempdir = TempDir::new()?;
-        tempdir.disable_cleanup(true);
+        let tempdir = TempDir::new()?;
         let tempdir_path = tempdir.path().to_path_buf();
-        defer! {
-            let _ = tempdir.close();
-        };
 
+        let tempdir_extracted = tempdir_path.join("extracted");
         let tempdir_orig_frames = tempdir_path.join("frames_orig");
         let tempdir_frames = tempdir_path.join("frames");
         let tempdir_vfi = tempdir_path.join("vfi");
 
+        let stage_start = Instant::now();
         let extract = ExtractOptions::new(
             self.input.to_path_buf(),
-            tempdir_path.to_path_buf(),
+            tempdir_extracted.clone(),
             0,
             0,
             "pcm_s16le".to_string(),
@@ -314,13 +343,36 @@ impl EnhanceOptions {
         extract.process()?;
 
         // Rename extracted frames directory to avoid conflicts
-        fs::rename(tempdir_frames.as_path(), tempdir_orig_frames.as_path())?;
+        fs::rename(tempdir_extracted.join("frames"), &tempdir_orig_frames)?;
+        fs::rename(tempdir_extracted.join("audio"), tempdir_path.join("audio"))?;
+        if std::env::var_os("PIXWORKER_TIMING").is_some() {
+            eprintln!("extract: {:?}", stage_start.elapsed());
+        }
 
         // Process VFI and upscaling
-        self.process_vfi(&tempdir_orig_frames, &tempdir_vfi)?;
-        self.process_upscale(&tempdir_vfi, &tempdir_frames)?;
+        let stage_start = Instant::now();
+        if self.vfi.fps == self.vfi.old_fps {
+            fs::rename(&tempdir_orig_frames, &tempdir_vfi)?;
+        } else {
+            self.process_vfi(&tempdir_orig_frames, &tempdir_vfi)?;
+        }
+        if std::env::var_os("PIXWORKER_TIMING").is_some() {
+            eprintln!("vfi: {:?}", stage_start.elapsed());
+        }
+        let stage_start = Instant::now();
+        if self.upscale.width == self.upscale.old_width
+            && self.upscale.height == self.upscale.old_height
+        {
+            fs::rename(&tempdir_vfi, &tempdir_frames)?;
+        } else {
+            self.process_upscale(&tempdir_vfi, &tempdir_frames)?;
+        }
+        if std::env::var_os("PIXWORKER_TIMING").is_some() {
+            eprintln!("upscale: {:?}", stage_start.elapsed());
+        }
 
         // Encode all frames (original + interpolated) to output video
+        let stage_start = Instant::now();
         let archive = ArchiveOptions::new(
             tempdir_path.to_path_buf(),
             self.output.to_path_buf(),
@@ -330,23 +382,13 @@ impl EnhanceOptions {
             self.silent,
         );
         archive.process()?;
+        if std::env::var_os("PIXWORKER_TIMING").is_some() {
+            eprintln!("archive: {:?}", stage_start.elapsed());
+        }
         Ok(())
     }
 
     fn process_vfi(&self, input_dir: &Path, output_dir: &Path) -> Result<()> {
-        if self.vfi.fps <= self.vfi.old_fps {
-            // no need to interpolate, just copy input to output
-            fs::create_dir_all(output_dir)?;
-            for entry in fs::read_dir(input_dir)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_file() {
-                    let filename = path.file_name().unwrap();
-                    fs::copy(&path, output_dir.join(filename))?;
-                }
-            }
-            return Ok(());
-        }
         // Determine model path based on VFI model type
         let model_filename = match self.vfi_model {
             VFIModel::GimmVfiFP => "gimmvfi_f_arb_lpips_fp32.onnx",
@@ -362,7 +404,11 @@ impl EnhanceOptions {
             println!("Loading VFI model: {}", model_path.display());
         }
 
+        let session_start = Instant::now();
         let mut _session = new_session(&model_path, self.silent)?;
+        if std::env::var_os("PIXWORKER_TIMING").is_some() {
+            eprintln!("vfi session: {:?}", session_start.elapsed());
+        }
         let session = &mut _session;
 
         if !self.silent {
@@ -378,18 +424,9 @@ impl EnhanceOptions {
             );
             println!(
                 "Processing video interpolation from {}fps to {}fps",
-                self.vfi.old_fps, self.vfi.fps
+                self.vfi.old_fps.to_fps(),
+                self.vfi.fps.to_fps()
             );
-        }
-
-        // Calculate interpolation parameters
-        let frame_multiplier = self.vfi.fps / self.vfi.old_fps;
-        if frame_multiplier < 2 {
-            bail!("Target FPS must be at least 2x the original FPS for interpolation");
-        }
-
-        if !self.silent {
-            println!("Frame multiplier: {}x", frame_multiplier);
         }
 
         // Frame files are extracted to tempdir_path/frames directory
@@ -432,7 +469,7 @@ impl EnhanceOptions {
             println!(
                 "Processing {} frames with {}x interpolation...",
                 frame_files.len(),
-                frame_multiplier
+                self.vfi.fps.to_fps() / self.vfi.old_fps.to_fps()
             );
         }
 
@@ -450,45 +487,72 @@ impl EnhanceOptions {
 
         // Process frame interpolation in streaming fashion
         let mut output_frame_idx = 0;
+        let output_count = output_frame_count(frame_files.len(), self.vfi.old_fps, self.vfi.fps)?;
+        let mut io_elapsed = Duration::ZERO;
+        let io_start = Instant::now();
+        let mut frame_start = load_frame(&frame_files[0])?;
+        io_elapsed += io_start.elapsed();
 
         for i in 0..frame_files.len() - 1 {
-            // Load only current frame pair (memory efficient)
-            let frame_start: ndarray::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::Dim<[usize; 3]>> =
-                load_frame(&frame_files[i])?;
-            let frame_end = load_frame(&frame_files[i + 1])?;
-
             if !self.silent && i % 10 == 0 {
                 println!("Processing frame pair {}/{}", i + 1, frame_files.len() - 1);
             }
 
-            // Save original frame
-            save_frame(&frame_start, &output_path, output_frame_idx)?;
-            output_frame_idx += 1;
-
-            // Generate interpolated frames using GIMM wrapper
-            let interpolated_frames = self.interpolate_frames(
-                session,
-                &frame_start,
-                &frame_end,
-                frame_multiplier as usize - 1,
-            )?;
-
-            // Save interpolated frames and immediately release memory
-            for interp_frame in interpolated_frames {
-                save_frame(&interp_frame, &output_path, output_frame_idx)?;
+            let mut times = Vec::new();
+            while output_frame_idx < output_count {
+                let (source_idx, t) =
+                    frame_position(output_frame_idx, self.vfi.old_fps, self.vfi.fps)?;
+                if source_idx != i {
+                    break;
+                }
+                if t == 0.0 {
+                    let io_start = Instant::now();
+                    fs::copy(
+                        &frame_files[i],
+                        output_path.join(format!("{}.png", output_frame_idx)),
+                    )?;
+                    io_elapsed += io_start.elapsed();
+                } else {
+                    times.push((output_frame_idx, t));
+                }
                 output_frame_idx += 1;
-                // interp_frame is dropped here, freeing memory
             }
+            let io_start = Instant::now();
+            let frame_end = load_frame(&frame_files[i + 1])?;
+            io_elapsed += io_start.elapsed();
+            if !times.is_empty() {
+                let interpolated_frames = self.interpolate_frames(
+                    session,
+                    &frame_start,
+                    &frame_end,
+                    &times.iter().map(|(_, t)| *t).collect::<Vec<_>>(),
+                )?;
+                for ((index, _), interp_frame) in times.into_iter().zip(interpolated_frames) {
+                    let io_start = Instant::now();
+                    save_frame(&interp_frame, &output_path, index)?;
+                    io_elapsed += io_start.elapsed();
+                }
+            }
+            frame_start = frame_end;
         }
 
-        // Save last frame
-        let last_frame = load_frame(frame_files.last().unwrap())?;
-        save_frame(&last_frame, &output_path, output_frame_idx)?;
+        while output_frame_idx < output_count {
+            let io_start = Instant::now();
+            fs::copy(
+                frame_files.last().unwrap(),
+                output_path.join(format!("{}.png", output_frame_idx)),
+            )?;
+            io_elapsed += io_start.elapsed();
+            output_frame_idx += 1;
+        }
+        if std::env::var_os("PIXWORKER_TIMING").is_some() {
+            eprintln!("vfi PNG I/O: {io_elapsed:?}");
+        }
 
         if !self.silent {
             println!(
                 "Interpolation complete! Generated {} frames total.",
-                output_frame_idx + 1
+                output_frame_idx
             );
         }
         Ok(())
@@ -534,13 +598,26 @@ impl EnhanceOptions {
             UpscaleModel::RealESRGANx4PlusAnimeHf => ("RealESRGAN_x4plus_anime_6B_fp16.onnx", true),
         };
 
-        let model_path = self.find_upscale_model(model_filename)?;
+        let model_path = if num_upscale_passes > 0 {
+            Some(self.find_upscale_model(model_filename)?)
+        } else {
+            None
+        };
 
         if !self.silent {
-            println!("Loading upscaler: {}", model_path.display());
+            if let Some(path) = &model_path {
+                println!("Loading upscaler: {}", path.display());
+            }
         }
 
-        let mut session = new_session(&model_path, self.silent)?;
+        let session_start = Instant::now();
+        let mut session = model_path
+            .as_ref()
+            .map(|path| new_session(path, self.silent))
+            .transpose()?;
+        if std::env::var_os("PIXWORKER_TIMING").is_some() {
+            eprintln!("upscale session: {:?}", session_start.elapsed());
+        }
 
         if !self.silent {
             println!(
@@ -619,13 +696,19 @@ impl EnhanceOptions {
             println!("Processing {} frames for upscaling...", frame_files.len());
         }
 
+        let mut io_elapsed = Duration::ZERO;
+        let mut run_elapsed = Duration::ZERO;
+        let mut post_elapsed = Duration::ZERO;
+        let total_start = Instant::now();
         for (idx, path) in frame_files.iter().enumerate() {
             if !self.silent && idx % 10 == 0 {
                 println!("Upscaling frame {}/{}", idx + 1, frame_files.len());
             }
 
             // Load frame [H, W, C] with values in [0, 255]
+            let io_start = Instant::now();
             let mut current_frame = load_frame(&path)?;
+            io_elapsed += io_start.elapsed();
 
             // Apply upscaling multiple times if needed
             // Each pass applies 4x upscaling, so 2 passes = 16x total
@@ -673,42 +756,52 @@ impl EnhanceOptions {
 
                     let img_tensor = Tensor::from_array(chw_fp16)?;
 
+                    let run_start = Instant::now();
                     let outputs = if supports_denoise {
-                        session.run(ort::inputs![img_tensor, denoise_tensor])?
+                        session
+                            .as_mut()
+                            .unwrap()
+                            .run(ort::inputs![img_tensor, denoise_tensor])?
                     } else {
-                        session.run(ort::inputs![img_tensor])?
+                        session.as_mut().unwrap().run(ort::inputs![img_tensor])?
                     };
+                    run_elapsed += run_start.elapsed();
+                    let post_start = Instant::now();
 
                     let output = &outputs[0];
 
                     // Extract and process FP16 output directly to avoid extra conversions
                     let output_array = output.try_extract_array::<f16>()?;
-                    let output_4d = output_array.to_owned().into_dimensionality::<Ix4>()?;
+                    let output_4d = output_array.into_dimensionality::<Ix4>()?;
                     let output_3d = output_4d.index_axis(Axis(0), 0);
-                    let hwc = output_3d
+                    // Convert fp16 to f32 and scale to [0, 255] in one operation
+                    let frame = output_3d
                         .permuted_axes([1, 2, 0])
                         .as_standard_layout()
-                        .to_owned();
-
-                    // Convert fp16 to f32 and scale to [0, 255] in one operation
-                    hwc.mapv(|v| (v.to_f32() * 255.0).clamp(0.0, 255.0))
+                        .mapv(|v| (v.to_f32() * 255.0).clamp(0.0, 255.0));
+                    post_elapsed += post_start.elapsed();
+                    frame
                 } else {
                     // FP32 path: no type conversion needed
                     let chw_owned = chw_batch.to_owned();
 
                     // Prepare denoise tensor in fp32
-                    let denoise_tensor = Tensor::from_array(Array::from_shape_vec(
-                        (1,),
-                        vec![denoise_strength],
-                    )?)?;
+                    let denoise_tensor =
+                        Tensor::from_array(Array::from_shape_vec((1,), vec![denoise_strength])?)?;
 
                     let img_tensor = Tensor::from_array(chw_owned)?;
 
+                    let run_start = Instant::now();
                     let outputs = if supports_denoise {
-                        session.run(ort::inputs![img_tensor, denoise_tensor])?
+                        session
+                            .as_mut()
+                            .unwrap()
+                            .run(ort::inputs![img_tensor, denoise_tensor])?
                     } else {
-                        session.run(ort::inputs![img_tensor])?
+                        session.as_mut().unwrap().run(ort::inputs![img_tensor])?
                     };
+                    run_elapsed += run_start.elapsed();
+                    let post_start = Instant::now();
 
                     let output = &outputs[0];
                     let output_array = output.try_extract_array::<f32>()?;
@@ -720,18 +813,35 @@ impl EnhanceOptions {
                         .to_owned();
 
                     // Scale to [0, 255] directly
-                    hwc.mapv(|v| (v * 255.0).clamp(0.0, 255.0))
+                    let frame = hwc.mapv(|v| (v * 255.0).clamp(0.0, 255.0));
+                    post_elapsed += post_start.elapsed();
+                    frame
                 };
             }
 
             // Final resize to exact target dimensions
+            let post_start = Instant::now();
             let final_frame = self.resize_to_target(
                 &current_frame,
                 self.upscale.width as usize,
                 self.upscale.height as usize,
             )?;
+            post_elapsed += post_start.elapsed();
 
-            save_frame(&final_frame, &output_dir.to_path_buf(), idx)?;
+            let io_start = Instant::now();
+            save_frame(&final_frame, output_dir, idx)?;
+            io_elapsed += io_start.elapsed();
+        }
+        if std::env::var_os("PIXWORKER_TIMING").is_some() {
+            eprintln!(
+                "upscale preprocessing: {:?}, Session::run: {:?}, postprocessing: {:?}, PNG I/O: {:?}",
+                total_start
+                    .elapsed()
+                    .saturating_sub(run_elapsed + post_elapsed + io_elapsed),
+                run_elapsed,
+                post_elapsed,
+                io_elapsed
+            );
         }
 
         if !self.silent {
@@ -750,7 +860,7 @@ impl EnhanceOptions {
     /// * `session` - ONNX Runtime session with loaded model
     /// * `frame0` - First frame as ndarray [H, W, C] in RGB format, values [0, 255]
     /// * `frame1` - Second frame as ndarray [H, W, C] in RGB format, values [0, 255]
-    /// * `num_interp` - Number of frames to interpolate between frame0 and frame1
+    /// * `times` - Temporal positions between frame0 and frame1
     ///
     /// # Returns
     /// Vector of interpolated frames as ndarray [H, W, C], values [0, 255]
@@ -759,7 +869,7 @@ impl EnhanceOptions {
         session: &mut Session,
         frame0: &Array<f32, Ix3>,
         frame1: &Array<f32, Ix3>,
-        num_interp: usize,
+        times: &[f32],
     ) -> Result<Vec<Array<f32, Ix3>>> {
         let (orig_height, orig_width, channels) = frame0.dim();
         if channels != 3 {
@@ -770,6 +880,7 @@ impl EnhanceOptions {
         if frame1.dim() != (orig_height, orig_width, channels) {
             bail!("Frame dimensions mismatch");
         }
+        let total_start = Instant::now();
 
         // Calculate padding to make dimensions divisible by 16 (FlowFormer requirement)
         // FlowFormer uses patch_size=8 but has additional constraints requiring divisor=16
@@ -807,54 +918,88 @@ impl EnhanceOptions {
             self.vfi_model,
             VFIModel::GimmVfiFPHf | VFIModel::GimmVfiRPHf
         );
-        let img_xs_fp16 = use_fp16.then(|| img_xs.mapv(|value| f16::from_f32(value)));
+        let img_input_fp16 = if use_fp16 {
+            Some(Tensor::from_array(img_xs.mapv(f16::from_f32))?)
+        } else {
+            None
+        };
+        let img_input_fp32 = if use_fp16 {
+            None
+        } else {
+            Some(Tensor::from_array(img_xs)?)
+        };
+        let mut coord_array = self.generate_coord(1, height, width, 0.0)?;
 
         // Generate all interpolated frames
-        let mut result_frames = Vec::with_capacity(num_interp);
+        let mut result_frames = Vec::with_capacity(times.len());
+        let mut run_elapsed = Duration::ZERO;
+        let mut post_elapsed = Duration::ZERO;
+        let mut unpad_elapsed = Duration::ZERO;
 
         let mut infer_frame = |t_value: f32| -> Result<Array<f32, Ix3>> {
             // Generate coordinate tensor (always fp32)
-            let coord_array = self.generate_coord(1, height, width, t_value)?;
-            
+            coord_array.slice_mut(s![.., .., .., .., 0]).fill(t_value);
+
             if use_fp16 {
                 // FP16 path: img_xs and t are fp16, coord is always fp32
                 let t_array = Array::from_shape_vec((1,), vec![f16::from_f32(t_value)])?;
-                
-                // Create owned tensors using Tensor::from_array (ort 2.0 recommended API)
-                // This ensures proper shape inference and avoids "Unable to get shape" errors
-                let img_input = Tensor::from_array(
-                    img_xs_fp16
-                        .as_ref()
-                        .expect("fp16 tensor available")
-                        .to_owned()
-                )?;
-                let coord_input = Tensor::from_array(coord_array)?;  // already owned
-                let t_input = Tensor::from_array(t_array)?;  // already owned
-                
-                let outputs = session.run(ort::inputs![img_input, coord_input, t_input])?;
-                self.extract_padded_frame(&outputs[0], true)
+
+                let coord_input = TensorRef::from_array_view(coord_array.view())?;
+                let t_input = Tensor::from_array(t_array)?;
+
+                let run_start = Instant::now();
+                let outputs = session.run(ort::inputs![
+                    img_input_fp16.as_ref().unwrap(),
+                    coord_input,
+                    t_input
+                ])?;
+                run_elapsed += run_start.elapsed();
+                let post_start = Instant::now();
+                let frame = self.extract_padded_frame(&outputs[0], true)?;
+                post_elapsed += post_start.elapsed();
+                Ok(frame)
             } else {
                 // FP32 path: all tensors in fp32
                 let t_array = Array::from_shape_vec((1,), vec![t_value])?;
-                
-                // Create owned tensors using Tensor::from_array (ort 2.0 recommended API)
-                let img_input = Tensor::from_array(img_xs.to_owned())?;
-                let coord_input = Tensor::from_array(coord_array)?;  // already owned
-                let t_input = Tensor::from_array(t_array)?;  // already owned
-                
-                let outputs = session.run(ort::inputs![img_input, coord_input, t_input])?;
-                self.extract_padded_frame(&outputs[0], false)
+
+                let coord_input = TensorRef::from_array_view(coord_array.view())?;
+                let t_input = Tensor::from_array(t_array)?;
+
+                let run_start = Instant::now();
+                let outputs = session.run(ort::inputs![
+                    img_input_fp32.as_ref().unwrap(),
+                    coord_input,
+                    t_input
+                ])?;
+                run_elapsed += run_start.elapsed();
+                let post_start = Instant::now();
+                let frame = self.extract_padded_frame(&outputs[0], false)?;
+                post_elapsed += post_start.elapsed();
+                Ok(frame)
             }
         };
 
-        for i in 0..num_interp {
-            let t_value = (i + 1) as f32 / (num_interp + 1) as f32;
+        for &t_value in times {
             let padded_frame = infer_frame(t_value)?;
+            let post_start = Instant::now();
             let result_frame =
-                self.unpad_frame(&padded_frame, pad_top, pad_left, orig_height, orig_width)?;
+                self.unpad_frame(padded_frame, pad_top, pad_left, orig_height, orig_width)?;
+            unpad_elapsed += post_start.elapsed();
             result_frames.push(result_frame);
         }
 
+        post_elapsed += unpad_elapsed;
+
+        if std::env::var_os("PIXWORKER_TIMING").is_some() {
+            eprintln!(
+                "vfi preprocessing: {:?}, Session::run: {:?}, postprocessing: {:?}",
+                total_start
+                    .elapsed()
+                    .saturating_sub(run_elapsed + post_elapsed),
+                run_elapsed,
+                post_elapsed
+            );
+        }
         Ok(result_frames)
     }
 
@@ -935,12 +1080,15 @@ impl EnhanceOptions {
     /// Remove padding from a frame to restore original dimensions
     fn unpad_frame(
         &self,
-        padded_frame: &Array<f32, Ix3>,
+        padded_frame: Array<f32, Ix3>,
         pad_top: usize,
         pad_left: usize,
         orig_height: usize,
         orig_width: usize,
     ) -> Result<Array<f32, Ix3>> {
+        if padded_frame.dim().0 == orig_height && padded_frame.dim().1 == orig_width {
+            return Ok(padded_frame);
+        }
         Ok(padded_frame
             .slice(s![
                 pad_top..pad_top + orig_height,
@@ -953,22 +1101,19 @@ impl EnhanceOptions {
     fn extract_padded_frame(&self, output: &Value, use_fp16: bool) -> Result<Array<f32, Ix3>> {
         if use_fp16 {
             let output_array = output.try_extract_array::<f16>()?;
-            let chw_4d = output_array.into_owned().into_dimensionality::<Ix4>()?;
-            let hwc = Self::reshape_to_hwc(chw_4d);
-            Ok(hwc.mapv(|value| (value.to_f32() * 255.0).clamp(0.0, 255.0)))
+            let chw_4d = output_array.into_dimensionality::<Ix4>()?;
+            let hwc = chw_4d.index_axis(Axis(0), 0).permuted_axes([1, 2, 0]);
+            Ok(hwc
+                .as_standard_layout()
+                .mapv(|value| (value.to_f32() * 255.0).clamp(0.0, 255.0)))
         } else {
             let output_array = output.try_extract_array::<f32>()?;
-            let chw_4d = output_array.into_owned().into_dimensionality::<Ix4>()?;
-            let hwc = Self::reshape_to_hwc(chw_4d);
-            Ok(hwc.mapv(|value| (value * 255.0).clamp(0.0, 255.0)))
+            let chw_4d = output_array.into_dimensionality::<Ix4>()?;
+            let hwc = chw_4d.index_axis(Axis(0), 0).permuted_axes([1, 2, 0]);
+            Ok(hwc
+                .as_standard_layout()
+                .mapv(|value| (value * 255.0).clamp(0.0, 255.0)))
         }
-    }
-
-    fn reshape_to_hwc<T: Copy>(array: Array<T, Ix4>) -> Array<T, Ix3> {
-        let chw = array.index_axis(Axis(0), 0);
-        chw.permuted_axes([1, 2, 0])
-            .as_standard_layout()
-            .to_owned()
     }
 
     /// Find VFI model file in workspace or model directory
@@ -1132,13 +1277,11 @@ impl EnhanceOptions {
 
         let frame_u8 = frame
             .mapv(|v| v.clamp(0.0, 255.0) as u8)
-            .into_raw_vec_and_offset().0;
-        let image = ImageBuffer::<Rgb<u8>, _>::from_raw(
-            current_w as u32,
-            current_h as u32,
-            frame_u8,
-        )
-        .ok_or_else(|| anyhow::anyhow!("Failed to create image buffer for resizing"))?;
+            .into_raw_vec_and_offset()
+            .0;
+        let image =
+            ImageBuffer::<Rgb<u8>, _>::from_raw(current_w as u32, current_h as u32, frame_u8)
+                .ok_or_else(|| anyhow::anyhow!("Failed to create image buffer for resizing"))?;
 
         let resized = DynamicImage::ImageRgb8(image)
             .resize_exact(width as u32, height as u32, FilterType::Lanczos3)
@@ -1176,8 +1319,64 @@ pub enum UpscaleModel {
 }
 
 pub struct VFI {
-    pub old_fps: u64,
-    pub fps: u64,
+    pub old_fps: NTSC,
+    pub fps: NTSC,
+}
+
+fn output_frame_count(source_count: usize, source: NTSC, target: NTSC) -> Result<usize> {
+    let num = (source_count as u128)
+        .checked_mul(target.num as u128)
+        .and_then(|value| value.checked_mul(source.den as u128))
+        .ok_or_else(|| anyhow::anyhow!("Output frame count exceeds supported range"))?;
+    let den = target.den as u128 * source.num as u128;
+    Ok(num.div_ceil(den).try_into()?)
+}
+
+fn frame_position(output_idx: usize, source: NTSC, target: NTSC) -> Result<(usize, f32)> {
+    let num = (output_idx as u128)
+        .checked_mul(target.den as u128)
+        .and_then(|value| value.checked_mul(source.num as u128))
+        .ok_or_else(|| anyhow::anyhow!("Frame timestamp exceeds supported range"))?;
+    let den = target.num as u128 * source.den as u128;
+    Ok(((num / den).try_into()?, (num % den) as f32 / den as f32))
+}
+
+#[cfg(test)]
+mod timing_tests {
+    use super::*;
+
+    #[test]
+    fn preserves_rational_timestamps_and_frame_boundaries() {
+        for source in [NTSC::new(&24, &1), NTSC::new(&24000, &1001)] {
+            let target = source.scaled(5, 2).unwrap();
+            assert_eq!(output_frame_count(4, source, target).unwrap(), 10);
+            let positions: Vec<_> = (0..10)
+                .map(|j| frame_position(j, source, target).unwrap())
+                .collect();
+            assert_eq!(
+                positions.iter().map(|p| p.0).collect::<Vec<_>>(),
+                [0, 0, 0, 1, 1, 2, 2, 2, 3, 3]
+            );
+            assert_eq!(positions[0], (0, 0.0));
+            assert_eq!(positions[5], (2, 0.0));
+            assert_eq!(
+                target,
+                if source.den == 1 {
+                    NTSC::new(&60, &1)
+                } else {
+                    NTSC::new(&60000, &1001)
+                }
+            );
+            let doubled = source.scaled(2, 1).unwrap();
+            assert_eq!(output_frame_count(4, source, doubled).unwrap(), 8);
+            assert_eq!(frame_position(7, source, doubled).unwrap(), (3, 0.5));
+            assert_eq!(output_frame_count(4, source, source).unwrap(), 4);
+        }
+        assert_eq!(NTSC::from_strict_fps(&30), NTSC::new(&30, &1));
+        assert!(
+            output_frame_count(usize::MAX, NTSC::new(&1, &1), NTSC::new(&u64::MAX, &1)).is_err()
+        );
+    }
 }
 
 pub enum VFIModel {
@@ -1219,19 +1418,32 @@ fn new_session(model_path: &Path, silent: bool) -> Result<Session> {
     // Configure execution providers based on platform
     // Try hardware acceleration first, fall back to CPU if unavailable
     let mut _builder = Session::builder()?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_intra_threads(num_threads_intra)?
-        .with_inter_threads(num_threads_inter)?;
+        .with_optimization_level(GraphOptimizationLevel::Level3)
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .with_intra_threads(num_threads_intra)
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .with_inter_threads(num_threads_inter)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(
+            any(target_os = "linux", target_os = "windows"),
+            target_arch = "x86_64"
+        )
+    ))]
     let builder = &mut _builder;
 
     // Register execution providers in order of preference
     // ONNX Runtime will try each in order and fall back if unavailable
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    let mut coreml_registered = false;
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
         let coreml = CoreMLExecutionProvider::default().with_subgraphs(true);
-        if coreml.is_available()? {
+        if std::env::var_os("PIXWORKER_CPU_ONLY").is_none() && coreml.is_available()? {
             match coreml.register(builder) {
                 Ok(_) => {
+                    coreml_registered = true;
                     if !silent {
                         println!("✓ Enabled CoreML Execution Provider for inference.");
                     }
@@ -1249,7 +1461,7 @@ fn new_session(model_path: &Path, silent: bool) -> Result<Session> {
         }
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
         let tensorrt = TensorRTExecutionProvider::default();
         if tensorrt.is_available()? {
@@ -1291,7 +1503,7 @@ fn new_session(model_path: &Path, silent: bool) -> Result<Session> {
         }
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     {
         let tensorrt = TensorRTExecutionProvider::default();
         if tensorrt.is_available()? {
@@ -1333,6 +1545,25 @@ fn new_session(model_path: &Path, silent: bool) -> Result<Session> {
         }
     }
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    let session = match _builder.commit_from_file(model_path) {
+        Ok(session) => session,
+        Err(error) if coreml_registered => {
+            if !silent {
+                eprintln!("CoreML model load failed ({error}); retrying on CPU.");
+            }
+            Session::builder()?
+                .with_optimization_level(GraphOptimizationLevel::Level3)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .with_intra_threads(num_threads_intra)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .with_inter_threads(num_threads_inter)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .commit_from_file(model_path)?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
     let session = _builder.commit_from_file(model_path)?;
 
     if !silent {
@@ -1362,14 +1593,10 @@ fn load_frame(path: &PathBuf) -> Result<Array<f32, Ix3>> {
 }
 
 /// Save a frame to disk as PNG
-fn save_frame(frame: &Array<f32, Ix3>, output_dir: &PathBuf, frame_idx: usize) -> Result<()> {
+fn save_frame(frame: &Array<f32, Ix3>, output_dir: &Path, frame_idx: usize) -> Result<()> {
     let (height, width, _channels) = frame.dim();
 
-    // CRITICAL: Ensure array is in standard (contiguous) layout before converting to raw buffer
-    // After permuted_axes(), the array may not be contiguous, causing incorrect memory layout
     let frame_owned = frame.to_owned();
-
-    // Convert f32 [0, 255] to contiguous u8 buffer in HWC (row-major) order
     let frame_u8 = frame_owned.mapv(|x| x.clamp(0.0, 255.0) as u8);
     let rgb_buffer = frame_u8.into_raw_vec_and_offset().0;
 

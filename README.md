@@ -9,15 +9,15 @@ A video enhancement tool powered by ONNX Runtime, supporting frame interpolation
 - **Frame Interpolation (VFI)**: Enhance video frame rate using GIMM-VFI models for smoother playback
 - **Upscaling**: 4x or higher resolution enhancement using Real-ESRGAN models
 - **Hardware Acceleration**: 
-  - macOS: CoreML acceleration
-  - Linux: CUDA / TensorRT acceleration
-  - Windows: CUDA / TensorRT acceleration
+  - macOS ARM64: CoreML acceleration
+  - Linux / Windows x86_64: CUDA 13 / TensorRT acceleration (CUDA 13.2+, cuDNN 9.23+)
+  - Linux / Windows ARM64: CPU inference
 - **NTSC Video Processing**: Deinterlacing support for interlaced video content
 
 ## Build Requirements
 
 ### Prerequisites
-- **Rust**: Latest stable version (install via [rustup](https://rustup.rs/))
+- **Rust**: 1.88 or newer (install via [rustup](https://rustup.rs/))
 - **Make**: For build automation
 
 ### Platform-Specific Requirements
@@ -62,10 +62,11 @@ make debug
 make help
 
 # Build for specific platforms
-make macos-x64      # macOS x86_64
 make macos-arm64    # macOS Apple Silicon
 make linux-x64      # Linux x86_64
 make linux-arm64    # Linux ARM64
+make windows-x64    # Windows x86_64 (Windows host)
+make windows-arm64  # Windows ARM64 (Windows host)
 
 # Build all platforms and package
 make dist

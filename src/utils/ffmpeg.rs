@@ -151,6 +151,8 @@ impl ExtractOptions {
             frame_files_location.to_str().unwrap(),
             "-map",
             "0:a:0",
+            "-af",
+            "aresample=async=1:first_pts=0",
             "-acodec",
             self.acodec.as_str(),
             "-ar",
@@ -268,7 +270,7 @@ pub fn archive(
 pub struct ArchiveOptions {
     input: PathBuf,
     output: PathBuf,
-    frame_rate: u64,
+    frame_rate: NTSC,
     keyframes: f64,
     acodec: String,
     silent: bool,
@@ -278,7 +280,7 @@ impl ArchiveOptions {
     pub fn new(
         input: PathBuf,
         output: PathBuf,
-        frame_rate: u64,
+        frame_rate: NTSC,
         keyframes: f64,
         acodec: String,
         silent: bool,
@@ -323,6 +325,9 @@ impl ArchiveOptions {
         }
 
         let frame_rate = frame_rate.unwrap_or(30);
+        if frame_rate == 0 {
+            bail!("Frame rate must be positive.");
+        }
         let keyframes = keyframes.unwrap_or(1.0);
         let acodec = acodec.clone().unwrap_or("pcm_s16le".to_string());
         let silent = silent.unwrap_or(false);
@@ -330,7 +335,7 @@ impl ArchiveOptions {
         Ok(Self::new(
             input.to_path_buf(),
             actual_output,
-            frame_rate,
+            NTSC::from_strict_fps(&frame_rate),
             keyframes,
             acodec,
             silent,
@@ -452,11 +457,6 @@ impl ArchiveOptions {
         let mut audio_file_location = self.input.clone();
         audio_file_location.push("audio");
         audio_file_location.push("0.wav");
-        let audio_info = FFProbe::new(&audio_file_location).inspect_audio()?;
-        if audio_info.duration.is_none() {
-            bail!("Failed to inspect audio file.");
-        }
-
         if !audio_file_location.exists() || !audio_file_location.is_file() {
             bail!("Audio file does not exist or is not a file.");
         }
@@ -466,24 +466,17 @@ impl ArchiveOptions {
             self.output.display()
         );
 
-        let ntsc = NTSC::from_strict_fps(&self.frame_rate);
-        let actual_frame_rate = round_to_decimal(ntsc.to_fps(), 8);
+        let ntsc = self.frame_rate;
+        let actual_frame_rate = format!("{}/{}", ntsc.num, ntsc.den);
         let keyframe_interval =
             (self.keyframes as f64 * ntsc.num as f64 / ntsc.den as f64).round() as u64;
-        let atempo = round_to_decimal(
-            audio_info.duration.unwrap() * ntsc.num as f64
-                / (frame_files.len() as f64 * ntsc.den as f64),
-            8,
-        )
-        .min(2.0)
-        .max(0.5);
 
         // TODO: currently we only archive to H.265 MOV format in quality (lossless) profile.
         // We may add a performance profile in the future.
         let mut cmd = Command::new("ffmpeg");
         cmd.args([
             "-framerate",
-            actual_frame_rate.to_string().as_str(),
+            actual_frame_rate.as_str(),
             "-i",
             &format!("{}/%d.png", frame_files_location.to_str().unwrap()),
             "-i",
@@ -504,8 +497,6 @@ impl ArchiveOptions {
             &keyframe_interval.to_string(),
             "-c:a",
             self.acodec.as_str(),
-            "-af",
-            &format!("atempo={:.8}", atempo),
             self.output.to_str().unwrap(),
         ]);
         if !self.silent {
@@ -739,11 +730,6 @@ impl FFProbeAudioInfo {
             duration: None,
         }
     }
-}
-
-fn round_to_decimal(value: f64, decimal_places: u32) -> f64 {
-    let multiplier = 10_f64.powi(decimal_places as i32);
-    (value * multiplier).round() / multiplier
 }
 
 fn get_first_num_from_group_name(s: &str) -> u64 {
