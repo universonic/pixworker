@@ -1441,29 +1441,29 @@ fn new_session(model_path: &Path, silent: bool) -> Result<Session> {
     let mut coreml_registered = false;
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        if std::env::var_os("PIXWORKER_CPU_ONLY").is_none() {
-            let coreml = CoreMLExecutionProvider::default().with_subgraphs(true);
-            let coreml = match std::env::var("PIXWORKER_COREML_UNITS").as_deref() {
-                Err(std::env::VarError::NotPresent) | Ok("default") => coreml,
-                Ok("gpu") => coreml.with_compute_units(ComputeUnits::CPUAndGPU),
-                Ok("ane") => coreml.with_compute_units(ComputeUnits::CPUAndNeuralEngine),
-                _ => bail!("PIXWORKER_COREML_UNITS must be default, gpu or ane"),
-            };
-            if coreml.is_available()? {
-                match coreml.register(builder) {
-                    Ok(_) => {
-                        coreml_registered = true;
-                        if !silent {
-                            println!("✓ Enabled CoreML Execution Provider for inference.");
-                        }
-                    }
-                    Err(e) => {
-                        if !silent {
-                            eprintln!("⚠️ CoreML Execution Provider failed to register: {}", e);
-                        }
+        let coreml = CoreMLExecutionProvider::default().with_subgraphs(true);
+        let coreml = match std::env::var("PIXWORKER_COREML_UNITS").as_deref() {
+            Err(std::env::VarError::NotPresent) | Ok("default") => coreml,
+            Ok("gpu") => coreml.with_compute_units(ComputeUnits::CPUAndGPU),
+            Ok("ane") => coreml.with_compute_units(ComputeUnits::CPUAndNeuralEngine),
+            _ => bail!("PIXWORKER_COREML_UNITS must be default, gpu or ane"),
+        };
+        if std::env::var_os("PIXWORKER_CPU_ONLY").is_none() && coreml.is_available()? {
+            match coreml.register(builder) {
+                Ok(_) => {
+                    coreml_registered = true;
+                    if !silent {
+                        println!("✓ Enabled CoreML Execution Provider for inference.");
                     }
                 }
-            } else if !silent {
+                Err(e) => {
+                    if !silent {
+                        eprintln!("⚠️ CoreML Execution Provider failed to register: {}", e);
+                    }
+                }
+            }
+        } else {
+            if !silent {
                 println!("⚠️ CoreML Execution Provider not available.");
             }
         }

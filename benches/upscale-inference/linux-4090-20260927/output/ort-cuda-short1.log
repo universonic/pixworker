@@ -1,0 +1,247 @@
+Input video: /tmp/pixworker-4090-GWfL65rY/input/short.mkv
+Extracting to directory '/tmp/pixworker-4090-GWfL65rY/tmp/.tmpw1dJPb/extracted' with ffmpeg...
+ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers
+  built with gcc 13 (Ubuntu 13.2.0-23ubuntu3)
+  configuration: --prefix=/usr --extra-version=3ubuntu5 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared
+  libavutil      58. 29.100 / 58. 29.100
+  libavcodec     60. 31.102 / 60. 31.102
+  libavformat    60. 16.100 / 60. 16.100
+  libavdevice    60.  3.100 / 60.  3.100
+  libavfilter     9. 12.100 /  9. 12.100
+  libswscale      7.  5.100 /  7.  5.100
+  libswresample   4. 12.100 /  4. 12.100
+  libpostproc    57.  3.100 / 57.  3.100
+Input #0, matroska,webm, from '/tmp/pixworker-4090-GWfL65rY/input/short.mkv':
+  Metadata:
+    ENCODER         : Lavf63.1.102
+  Duration: 00:00:05.01, start: 0.000000, bitrate: 21675 kb/s
+  Stream #0:0: Video: h264 (High 4:4:4 Predictive), yuv420p(tv, progressive), 1280x720 [SAR 1:1 DAR 16:9], 23.98 fps, 23.98 tbr, 1k tbn
+    Metadata:
+      ENCODER         : Lavc63.1.102 libx264
+      DURATION        : 00:00:05.005000000
+  Stream #0:1: Audio: flac, 48000 Hz, stereo, s32 (24 bit)
+    Metadata:
+      ENCODER         : Lavc63.1.102 flac
+      DURATION        : 00:00:05.006000000
+Stream mapping:
+  Stream #0:0 -> #0:0 (h264 (native) -> png (native))
+  Stream #0:1 -> #1:0 (flac (native) -> pcm_s16le (native))
+Press [q] to stop, [?] for help
+Output #1, wav, to '/tmp/pixworker-4090-GWfL65rY/tmp/.tmpw1dJPb/extracted/audio/0.wav':
+  Metadata:
+    ISFT            : Lavf60.16.100
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 44100 Hz, stereo, s16, 1411 kb/s
+    Metadata:
+      DURATION        : 00:00:05.006000000
+      encoder         : Lavc60.31.102 pcm_s16le
+Output #0, image2, to '/tmp/pixworker-4090-GWfL65rY/tmp/.tmpw1dJPb/extracted/frames/%d.png':
+  Metadata:
+    encoder         : Lavf60.16.100
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown, progressive), 1280x720 [SAR 1:1 DAR 16:9], q=2-31, 200 kb/s, 23.98 fps, 23.98 tbn
+    Metadata:
+      DURATION        : 00:00:05.005000000
+      encoder         : Lavc60.31.102 png
+frame=    0 fps=0.0 q=0.0 size=       0kB time=00:00:00.48 bitrate=   0.0kbits/s speed=34.8x    [out#0/image2 @ 0x630399d36d00] video:55554kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: unknown
+[out#1/wav @ 0x63039abebec0] video:0kB audio:862kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: 0.008836%
+frame=  120 fps=0.0 q=-0.0 Lsize=N/A time=00:00:05.00 bitrate=N/A speed=20.9x    
+Extract 120 frames in total.
+extract: 300.309157ms
+vfi: 3.426µs
+Loading upscaler: /tmp/pixworker-4090-GWfL65rY/home/.cache/pixworker/models/upscale/realesr-animevideov3_fp32.onnx
+[2m2026-09-26T22:28:19.196006Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Discovered OrtHardwareDevice {vendor_id:0x8086, device_id:0xa780, vendor:, type:1, metadata: [card_idx=0, pci_bus_id=0000:00:02.0, ]}
+[2m2026-09-26T22:28:19.196013Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Discovered OrtHardwareDevice {vendor_id:0x10de, device_id:0x2684, vendor:, type:1, metadata: [Discrete=1, card_idx=1, pci_bus_id=0000:01:00.0, ]}
+[2m2026-09-26T22:28:19.196015Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Discovered OrtHardwareDevice {vendor_id:0x8086, device_id:0x0, vendor:Intel, type:0, metadata: []}
+⚠️ TensorRT Execution Provider failed to register: /home/runner/work/ort-artifacts/ort-artifacts/onnxruntime/onnxruntime/core/session/provider_bridge_ort.cc:1988 Provider &onnxruntime::ProviderLibrary::Get() [ONNXRuntimeError] : 1 : FAIL : Failed to load library /tmp/pixworker-4090-GWfL65rY/target/release/libonnxruntime_providers_tensorrt.so with error: libnvinfer.so.10: cannot open shared object file: No such file or directory
+
+✓ Enabled CUDA Execution Provider for inference.
+[2m2026-09-26T22:28:19.518795Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Session Options {  execution_mode:0 execution_order:DEFAULT enable_profiling:0 optimized_model_filepath:"" enable_mem_pattern:1 enable_mem_reuse:1 enable_cpu_mem_arena:1 profile_file_prefix:onnxruntime_profile_ session_logid: session_log_severity_level:-1 session_log_verbosity_level:0 max_num_graph_transformation_steps:10 graph_optimization_level:3 intra_op_param:OrtThreadPoolParams { thread_pool_size: 32 auto_set_affinity: 0 allow_spinning: 0 spin_duration_us: -1 spin_backoff_max: 1 dynamic_block_base_: 0 stack_size: 0 affinity_str:  set_denormal_as_zero: 0 } inter_op_param:OrtThreadPoolParams { thread_pool_size: 4 auto_set_affinity: 0 allow_spinning: 0 spin_duration_us: -1 spin_backoff_max: 1 dynamic_block_base_: 0 stack_size: 0 affinity_str:  set_denormal_as_zero: 0 } use_per_session_threads:1 thread_pool_allow_spinning:1 use_deterministic_compute:0 ep_selection_policy:5 config_options: {  } }
+[2m2026-09-26T22:28:19.518805Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Flush-to-zero and denormal-as-zero are off
+[2m2026-09-26T22:28:19.518807Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Creating and using per session threadpools since use_per_session_threads_ is true
+[2m2026-09-26T22:28:19.518810Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Dynamic block base set to 0
+[2m2026-09-26T22:28:19.523134Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Initializing session.
+[2m2026-09-26T22:28:19.523141Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Adding default CPU execution provider.
+[2m2026-09-26T22:28:19.523151Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Creating BFCArena for Cuda with following configs: initial_chunk_size_bytes: 1048576 max_dead_bytes_per_chunk: 134217728 initial_growth_chunk_size_bytes: 2097152 max_power_of_two_extend_bytes: 1073741824 memory limit: 18446744073709551615 arena_extend_strategy: 0
+[2m2026-09-26T22:28:19.523155Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Creating BFCArena for CudaPinned with following configs: initial_chunk_size_bytes: 1048576 max_dead_bytes_per_chunk: 134217728 initial_growth_chunk_size_bytes: 2097152 max_power_of_two_extend_bytes: 1073741824 memory limit: 18446744073709551615 arena_extend_strategy: 0
+[2m2026-09-26T22:28:19.523158Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Creating BFCArena for Cpu with following configs: initial_chunk_size_bytes: 1048576 max_dead_bytes_per_chunk: 134217728 initial_growth_chunk_size_bytes: 2097152 max_power_of_two_extend_bytes: 1073741824 memory limit: 18446744073709551615 arena_extend_strategy: 0
+[2m2026-09-26T22:28:19.524494Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m This model does not have any local functions defined. AOT Inlining is not performed
+[2m2026-09-26T22:28:19.525153Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EnsureUniqueDQForNodeUnit modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525163Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level1_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525170Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DoubleQDQPairsRemover modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525193Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConstantSharing modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525218Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer CommonSubexpressionElimination modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525224Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConstantFolding modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525228Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525232Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ReshapeFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525234Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FreeDimensionOverrideTransformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525239Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SliceConcatToSpaceToDepthFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525240Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL1 modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525245Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL1 modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525250Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQPropagationTransformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525255Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WeightBiasQuantization modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525259Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EnsureUniqueDQForNodeUnit modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525263Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer WhereDummyDq modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525281Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer TransposeOptimizer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525429Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Running graph optimizations in loop 1 time/s (Graph Optimizations Loop Level : 1)
+[2m2026-09-26T22:28:19.525434Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer Level2_RuleBasedTransformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525442Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer TransposeOptimizer_CPUExecutionProvider modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525446Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQS8ToU8Transformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525453Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQSelectorActionTransformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525457Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GemmActivationFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525461Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulIntegerToFloatFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525465Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer DynamicQuantizeMatMulFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525469Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConvActivationFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525473Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GeluFusionL2 modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525475Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer LayerNormFusionL2 modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525479Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SimplifiedLayerNormFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525485Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer AttentionFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525489Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer EmbedLayerNormFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525496Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherSliceToSplitFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525500Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GatherToSliceFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525505Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatmulTransposeFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525509Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasGeluFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525513Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GroupQueryAttentionFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525517Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulAddFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525521Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer SkipLayerNormFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525525Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasSkipLayerNormFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525530Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer FastGeluFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525534Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QuickGeluFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525538Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasSoftmaxFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525542Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer BiasDropoutFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525547Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulScaleFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525551Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulActivationFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525555Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MatMulNBitsFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525559Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer GroupQueryAttentionPreNormFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525563Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer QDQFinalCleanupTransformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525567Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer NchwcTransformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525574Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer NhwcTransformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525578Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer ConvAddActivationFusion modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525586Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer RemoveDuplicateCastTransformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525588Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer CastFloat16Transformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.525735Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m GraphTransformer MemcpyTransformer modified: 0 with status: OK
+[2m2026-09-26T22:28:19.535236Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m cuDNN version: 91900
+[2m2026-09-26T22:28:19.535255Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Use DeviceBasedPartition as default
+[2m2026-09-26T22:28:19.535507Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Saving initialized tensors.
+[2m2026-09-26T22:28:19.535514Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cuda. bin_num:4 (requested) num_bytes: 6912 (actual) rounded_bytes:6912
+[2m2026-09-26T22:28:19.535523Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 1048576 bytes.
+[2m2026-09-26T22:28:19.535524Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 1048576
+[2m2026-09-26T22:28:19.535526Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7db0d0e26600 to 0x7db0d0f26600
+[2m2026-09-26T22:28:19.535566Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Reserving memory in BFCArena for Cpu size: 16
+[2m2026-09-26T22:28:19.536778Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cuda. bin_num:9 (requested) num_bytes: 147456 (actual) rounded_bytes:147456
+[2m2026-09-26T22:28:19.536837Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 2097152 bytes.
+[2m2026-09-26T22:28:19.536838Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 3145728
+[2m2026-09-26T22:28:19.536840Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7db0d1c00000 to 0x7db0d1e00000
+[2m2026-09-26T22:28:19.537907Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Done saving initialized tensors
+[2m2026-09-26T22:28:19.539133Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Session successfully initialized.
+✓ ONNX model loaded successfully from: /tmp/pixworker-4090-GWfL65rY/home/.cache/pixworker/models/upscale/realesr-animevideov3_fp32.onnx
+upscale session: 350.382692ms
+Model type: Real-ESRAnimeVideoV3
+Processing video upscaling from 1280x720 to 2560x1440
+Processing 120 frames for upscaling...
+Upscaling frame 1/120
+[2m2026-09-26T22:28:19.558328Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cuda. bin_num:15 (requested) num_bytes: 11059200 (actual) rounded_bytes:11059200
+[2m2026-09-26T22:28:19.558463Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 16777216 bytes.
+[2m2026-09-26T22:28:19.558466Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 19922944
+[2m2026-09-26T22:28:19.558468Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7db020a00000 to 0x7db021a00000
+[2m2026-09-26T22:28:19.562515Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cuda. bin_num:19 (requested) num_bytes: 176947200 (actual) rounded_bytes:176947200
+[2m2026-09-26T22:28:19.563160Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 268435456 bytes.
+[2m2026-09-26T22:28:19.563162Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 288358400
+[2m2026-09-26T22:28:19.563163Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7db010000000 to 0x7db020000000
+[2m2026-09-26T22:28:19.573253Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cuda. bin_num:19 (requested) num_bytes: 235929600 (actual) rounded_bytes:235929600
+[2m2026-09-26T22:28:19.573369Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 268435456 bytes.
+[2m2026-09-26T22:28:19.573372Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 556793856
+[2m2026-09-26T22:28:19.573374Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7db000000000 to 0x7db010000000
+[2m2026-09-26T22:28:19.649277Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cuda. bin_num:14 (requested) num_bytes: 5529728 (actual) rounded_bytes:5529856
+[2m2026-09-26T22:28:19.649426Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 536870912 bytes.
+[2m2026-09-26T22:28:19.649428Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 1093664768
+[2m2026-09-26T22:28:19.649430Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7daf88000000 to 0x7dafa8000000
+[2m2026-09-26T22:28:19.766187Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cpu. bin_num:19 (requested) num_bytes: 176947200 (actual) rounded_bytes:176947200
+[2m2026-09-26T22:28:19.766204Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 268435456 bytes.
+[2m2026-09-26T22:28:19.766206Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 268435472
+[2m2026-09-26T22:28:19.766208Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7daf72b00040 to 0x7daf82b00040
+[2m2026-09-26T22:28:20.479920Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extending BFCArena for Cuda. bin_num:20 (requested) num_bytes: 648806400 (actual) rounded_bytes:648806400
+[2m2026-09-26T22:28:20.480599Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Extended allocation by 1073741824 bytes.
+[2m2026-09-26T22:28:20.480602Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Total allocated bytes: 2167406592
+[2m2026-09-26T22:28:20.480604Z[0m [32m INFO[0m [2mort::logging[0m[2m:[0m Allocated memory at 0x7daf32000000 to 0x7daf72000000
+Upscaling frame 11/120
+Upscaling frame 21/120
+Upscaling frame 31/120
+Upscaling frame 41/120
+Upscaling frame 51/120
+Upscaling frame 61/120
+Upscaling frame 71/120
+Upscaling frame 81/120
+Upscaling frame 91/120
+Upscaling frame 101/120
+Upscaling frame 111/120
+upscale preprocessing: 2.662644467s, Session::run: 16.651788288s, postprocessing: 63.282323961s, PNG I/O: 4.957824599s
+Upscaling complete! Processed 120 frames.
+upscale: 87.9241882s
+Total 120 frames.
+Archiving to file '/tmp/pixworker-4090-GWfL65rY/output/ort-cuda-short1.mov' with ffmpeg...
+ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers
+  built with gcc 13 (Ubuntu 13.2.0-23ubuntu3)
+  configuration: --prefix=/usr --extra-version=3ubuntu5 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared
+  libavutil      58. 29.100 / 58. 29.100
+  libavcodec     60. 31.102 / 60. 31.102
+  libavformat    60. 16.100 / 60. 16.100
+  libavdevice    60.  3.100 / 60.  3.100
+  libavfilter     9. 12.100 /  9. 12.100
+  libswscale      7.  5.100 /  7.  5.100
+  libswresample   4. 12.100 /  4. 12.100
+  libpostproc    57.  3.100 / 57.  3.100
+Input #0, image2, from '/tmp/pixworker-4090-GWfL65rY/tmp/.tmpw1dJPb/frames/%d.png':
+  Duration: 00:00:05.01, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown), 2560x1440, 23.98 fps, 23.98 tbr, 23.98 tbn
+[aist#1:0/pcm_s16le @ 0x634969d27200] Guessed Channel Layout: stereo
+Input #1, wav, from '/tmp/pixworker-4090-GWfL65rY/tmp/.tmpw1dJPb/audio/0.wav':
+  Metadata:
+    encoder         : Lavf60.16.100
+  Duration: 00:00:05.00, bitrate: 1411 kb/s
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 44100 Hz, 2 channels, s16, 1411 kb/s
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> hevc (libx265))
+  Stream #1:0 -> #0:1 (pcm_s16le (native) -> pcm_s16le (native))
+Press [q] to stop, [?] for help
+[in#0/image2 @ 0x634969d20ec0] Thread message queue blocking; consider raising the thread_queue_size option (current value: 8)
+x265 [info]: HEVC encoder version 3.5+1-f0c1022b6
+x265 [info]: build info [Linux][GCC 13.2.0][64 bit] 8bit+10bit+12bit
+x265 [info]: using cpu capabilities: MMX2 SSE2Fast LZCNT SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+x265 [warning]: halving the quality when psy-rd is enabled for 444 input. Setting cbQpOffset = 6 and crQpOffset = 6
+x265 [info]: Main 4:4:4 profile, Level-8.5 (Main tier)
+x265 [info]: Thread pool created using 32 threads
+x265 [info]: Slices                              : 1
+x265 [info]: frame threads / pool features       : 5 / wpp(23 rows)
+x265 [info]: Coding QT: max CU size, min CU size : 64 / 8
+x265 [info]: Residual QT: max TU size, max depth : 32 / 1 inter / 1 intra
+x265 [info]: ME / range / subpel / merge         : hex / 57 / 2 / 3
+x265 [info]: Keyframe min / max / scenecut / bias  : 2 / 24 / 40 / 5.00 
+x265 [info]: Cb/Cr QP Offset                     : 6 / 6
+x265 [info]: Lookahead / bframes / badapt        : 20 / 4 / 2
+x265 [info]: b-pyramid / weightp / weightb       : 1 / 1 / 0
+x265 [info]: References / ref-limit  cu / depth  : 3 / off / on
+x265 [info]: Rate Control                        : Lossless
+x265 [info]: tools: rd=3 psy-rd=2.00 early-skip rskip mode=1 signhide tmvp
+x265 [info]: tools: b-intra strong-intra-smoothing lslices=8 deblock sao
+Output #0, mov, to '/tmp/pixworker-4090-GWfL65rY/output/ort-cuda-short1.mov':
+  Metadata:
+    encoder         : Lavf60.16.100
+  Stream #0:0: Video: hevc (hvc1 / 0x31637668), yuv444p(tv, progressive), 2560x1440, q=2-31, 23.98 fps, 24k tbn
+    Metadata:
+      encoder         : Lavc60.31.102 libx265
+    Side data:
+      cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+  Stream #0:1: Audio: pcm_s16le (sowt / 0x74776F73), 44100 Hz, stereo, s16, 1411 kb/s
+    Metadata:
+      encoder         : Lavc60.31.102 pcm_s16le
+frame=    0 fps=0.0 q=0.0 size=       0kB time=00:00:00.00 bitrate=N/A speed=   0x    frame=    2 fps=0.0 q=4.0 size=     512kB time=00:00:01.32 bitrate=3169.2kbits/s speed= 2.1x    frame=   12 fps= 10 q=4.0 size=    5888kB time=00:00:01.74 bitrate=27697.3kbits/s speed= 1.5x    frame=   21 fps= 12 q=4.0 size=   10240kB time=00:00:02.11 bitrate=39699.8kbits/s speed=1.24x    frame=   30 fps= 13 q=4.0 size=   15616kB time=00:00:02.48 bitrate=51489.1kbits/s speed=1.11x    frame=   38 fps= 14 q=4.0 size=   21760kB time=00:00:02.83 bitrate=62925.8kbits/s speed=1.02x    frame=   44 fps= 13 q=4.0 size=   27136kB time=00:00:03.08 bitrate=71981.9kbits/s speed=0.919x    frame=   51 fps= 13 q=4.0 size=   33536kB time=00:00:03.36 bitrate=81596.7kbits/s speed=0.856x    frame=   57 fps= 13 q=4.0 size=   40192kB time=00:00:03.62 bitrate=90895.8kbits/s speed=0.803x    frame=   63 fps= 12 q=4.0 size=   47104kB time=00:00:03.87 bitrate=99510.8kbits/s speed=0.761x    frame=   69 fps= 12 q=4.0 size=   53760kB time=00:00:04.13 bitrate=106553.6kbits/s speed=0.734x    frame=   88 fps= 11 q=4.0 size=   75520kB time=00:00:04.36 bitrate=141720.6kbits/s speed=0.555x    [out#0/mov @ 0x634969d475c0] video:108647kB audio:862kB subtitle:0kB other streams:0kB global headers:2kB muxing overhead: 0.005926%
+frame=  120 fps= 12 q=4.0 Lsize=  109515kB time=00:00:04.99 bitrate=179707.0kbits/s speed=0.496x    
+x265 [info]: frame I:      6, Avg QP:4.00  kb/s: 189438.08
+x265 [info]: frame P:     26, Avg QP:4.00  kb/s: 204693.88
+x265 [info]: frame B:     88, Avg QP:4.00  kb/s: 169099.09
+x265 [info]: Weighted P-Frames: Y:0.0% UV:0.0%
+x265 [info]: consecutive B-frames: 15.6% 3.1% 3.1% 46.9% 31.2% 
+x265 [info]: lossless compression ratio 3.98::1
+
+encoded 120 frames in 9.98s (12.03 fps), 177828.25 kb/s, Avg QP:4.00
+archive: 10.181653451s
+wall_s=98.68 max_rss_kb=1875296

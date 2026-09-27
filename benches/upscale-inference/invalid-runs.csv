@@ -1,0 +1,2 @@
+input,backend,order,wall_s,last_reported_encoder_frame,published_output,reason,valid_pair
+long-source-short,native-tch-mps,reverse-pair-first,,84,no,macOS Dark Wake Thermal Emergency sleep at 2026-09-27 02:44:35 +0800 lasting 929 s; timed out,false

@@ -1,0 +1,12 @@
+[package]
+name = "native-tch"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+pixworker = { path = "../.." }
+safetensors = "=0.6.2"
+tch = "=0.22.0"
+tempfile = "=3.23.0"

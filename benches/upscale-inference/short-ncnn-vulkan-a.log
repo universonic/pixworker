@@ -1,0 +1,472 @@
+backend=vulkan input=tmp/upscale-bench-20260926-2345/short.mkv output=tmp/upscale-bench-20260926-2345/short-ncnn-vulkan-a.mov fps=24000/1001 vfi=1
+Extracting to directory '/Users/universonic/Workspace/pixworker/benches/native-ncnn/target/.tmp2hntl6/extracted' with ffmpeg...
+ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers
+  built with Apple clang version 21.0.0 (clang-2100.3.34.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/9.0.2 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvmaf --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      61.  1.102 / 61.  1.102
+  libavcodec     63.  1.102 / 63.  1.102
+  libavformat    63.  1.102 / 63.  1.102
+  libavdevice    63.  1.102 / 63.  1.102
+  libavfilter    12.  1.102 / 12.  1.102
+  libswscale     10.  1.102 / 10.  1.102
+  libswresample   7.  1.102 /  7.  1.102
+Input #0, matroska,webm, from 'tmp/upscale-bench-20260926-2345/short.mkv':
+  Metadata:
+    ENCODER         : Lavf63.1.102
+  Duration: 00:00:05.01, start: 0.000000, bitrate: 21675 kb/s
+  Stream #0:0: Video: h264 (High 4:4:4 Predictive), yuv420p(tv, progressive), 1280x720 [SAR 1:1 DAR 16:9], 23.98 fps, 23.98 tbr, 1k tbn
+    Metadata:
+      ENCODER         : Lavc63.1.102 libx264
+      DURATION        : 00:00:05.005000000
+  Stream #0:1: Audio: flac, 48000 Hz, stereo, s32 (24 bit)
+    Metadata:
+      ENCODER         : Lavc63.1.102 flac
+      DURATION        : 00:00:05.006000000
+Stream mapping:
+  Stream #0:0 -> #0:0 (h264 (native) -> png (native))
+  Stream #0:1 -> #1:0 (flac (native) -> pcm_s16le (native))
+Press [q] to stop, [?] for help
+Output #1, wav, to '/Users/universonic/Workspace/pixworker/benches/native-ncnn/target/.tmp2hntl6/extracted/audio/0.wav':
+  Metadata:
+    ISFT            : Lavf63.1.102
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 44100 Hz, stereo, s16, 1411 kb/s
+    Metadata:
+      encoder         : Lavc63.1.102 pcm_s16le
+      DURATION        : 00:00:05.006000000
+Output #0, image2, to '/Users/universonic/Workspace/pixworker/benches/native-ncnn/target/.tmp2hntl6/extracted/frames/%d.png':
+  Metadata:
+    encoder         : Lavf63.1.102
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown, progressive), 1280x720 [SAR 1:1 DAR 16:9], q=2-31, 200 kb/s, 23.98 fps, 23.98 tbn
+    Metadata:
+      encoder         : Lavc63.1.102 png
+      DURATION        : 00:00:05.005000000
+frame=   67 fps=0.0 q=-0.0 size=N/A time=00:00:04.58 bitrate=N/A speed=9.08x elapsed=0:00:00.50    [out#0/image2 @ 0xc77010900] video:46080KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+[out#1/wav @ 0xc77011b00] video:0KiB audio:862KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.008836%
+frame=  120 fps=109 q=-0.0 Lsize=N/A time=00:00:05.00 bitrate=N/A speed=4.56x elapsed=0:00:01.09    
+Extract 120 frames in total.
+[mvk-info] MoltenVK version 1.4.2, supporting Vulkan version 1.4.357.
+	The following 154 Vulkan extensions are supported:
+	VK_KHR_16bit_storage v1
+	VK_KHR_8bit_storage v1
+	VK_KHR_bind_memory2 v1
+	VK_KHR_buffer_device_address v1
+	VK_KHR_calibrated_timestamps v1
+	VK_KHR_copy_commands2 v1
+	VK_KHR_create_renderpass2 v1
+	VK_KHR_dedicated_allocation v3
+	VK_KHR_deferred_host_operations v4
+	VK_KHR_depth_stencil_resolve v1
+	VK_KHR_descriptor_update_template v1
+	VK_KHR_device_group v4
+	VK_KHR_device_group_creation v1
+	VK_KHR_driver_properties v1
+	VK_KHR_dynamic_rendering v1
+	VK_KHR_dynamic_rendering_local_read v1
+	VK_KHR_external_fence v1
+	VK_KHR_external_fence_capabilities v1
+	VK_KHR_external_memory v1
+	VK_KHR_external_memory_capabilities v1
+	VK_KHR_external_semaphore v1
+	VK_KHR_external_semaphore_capabilities v1
+	VK_KHR_format_feature_flags2 v2
+	VK_KHR_fragment_shader_barycentric v1
+	VK_KHR_get_memory_requirements2 v1
+	VK_KHR_get_physical_device_properties2 v2
+	VK_KHR_get_surface_capabilities2 v1
+	VK_KHR_global_priority v1
+	VK_KHR_image_format_list v1
+	VK_KHR_imageless_framebuffer v1
+	VK_KHR_incremental_present v2
+	VK_KHR_index_type_uint8 v1
+	VK_KHR_line_rasterization v1
+	VK_KHR_load_store_op_none v1
+	VK_KHR_maintenance1 v2
+	VK_KHR_maintenance2 v1
+	VK_KHR_maintenance3 v1
+	VK_KHR_maintenance4 v2
+	VK_KHR_maintenance5 v1
+	VK_KHR_maintenance6 v1
+	VK_KHR_maintenance7 v1
+	VK_KHR_maintenance8 v1
+	VK_KHR_maintenance9 v1
+	VK_KHR_map_memory2 v1
+	VK_KHR_multiview v1
+	VK_KHR_portability_subset v1
+	VK_KHR_present_id v1
+	VK_KHR_present_id2 v1
+	VK_KHR_present_wait v1
+	VK_KHR_present_wait2 v1
+	VK_KHR_push_descriptor v2
+	VK_KHR_relaxed_block_layout v1
+	VK_KHR_robustness2 v1
+	VK_KHR_sampler_mirror_clamp_to_edge v3
+	VK_KHR_sampler_ycbcr_conversion v14
+	VK_KHR_separate_depth_stencil_layouts v1
+	VK_KHR_shader_draw_parameters v1
+	VK_KHR_shader_expect_assume v1
+	VK_KHR_shader_float_controls v4
+	VK_KHR_shader_float_controls2 v1
+	VK_KHR_shader_float16_int8 v1
+	VK_KHR_shader_fma v1
+	VK_KHR_shader_integer_dot_product v1
+	VK_KHR_shader_maximal_reconvergence v1
+	VK_KHR_shader_non_semantic_info v1
+	VK_KHR_shader_quad_control v1
+	VK_KHR_shader_relaxed_extended_instruction v1
+	VK_KHR_shader_subgroup_extended_types v1
+	VK_KHR_shader_subgroup_rotate v2
+	VK_KHR_shader_subgroup_uniform_control_flow v1
+	VK_KHR_shader_terminate_invocation v1
+	VK_KHR_spirv_1_4 v1
+	VK_KHR_storage_buffer_storage_class v1
+	VK_KHR_surface v25
+	VK_KHR_surface_maintenance1 v1
+	VK_KHR_surface_protected_capabilities v1
+	VK_KHR_swapchain v70
+	VK_KHR_swapchain_maintenance1 v1
+	VK_KHR_swapchain_mutable_format v1
+	VK_KHR_synchronization2 v1
+	VK_KHR_timeline_semaphore v2
+	VK_KHR_uniform_buffer_standard_layout v1
+	VK_KHR_variable_pointers v1
+	VK_KHR_vertex_attribute_divisor v1
+	VK_KHR_vulkan_memory_model v3
+	VK_KHR_zero_initialize_workgroup_memory v1
+	VK_EXT_4444_formats v1
+	VK_EXT_buffer_device_address v2
+	VK_EXT_calibrated_timestamps v2
+	VK_EXT_debug_marker v4
+	VK_EXT_debug_report v10
+	VK_EXT_debug_utils v2
+	VK_EXT_depth_clip_control v1
+	VK_EXT_descriptor_indexing v2
+	VK_EXT_extended_dynamic_state v1
+	VK_EXT_extended_dynamic_state2 v1
+	VK_EXT_extended_dynamic_state3 v2
+	VK_EXT_external_memory_host v1
+	VK_EXT_external_memory_metal v1
+	VK_EXT_fragment_shader_interlock v1
+	VK_EXT_global_priority v2
+	VK_EXT_global_priority_query v1
+	VK_EXT_hdr_metadata v3
+	VK_EXT_headless_surface v1
+	VK_EXT_host_image_copy v1
+	VK_EXT_host_query_reset v1
+	VK_EXT_image_2d_view_of_3d v1
+	VK_EXT_image_robustness v1
+	VK_EXT_index_type_uint8 v1
+	VK_EXT_inline_uniform_block v1
+	VK_EXT_layer_settings v2
+	VK_EXT_legacy_dithering v2
+	VK_EXT_line_rasterization v1
+	VK_EXT_load_store_op_none v1
+	VK_EXT_memory_budget v1
+	VK_EXT_metal_objects v2
+	VK_EXT_metal_surface v1
+	VK_EXT_non_seamless_cube_map v1
+	VK_EXT_pipeline_creation_cache_control v3
+	VK_EXT_pipeline_creation_feedback v1
+	VK_EXT_pipeline_robustness v1
+	VK_EXT_post_depth_coverage v1
+	VK_EXT_primitive_topology_list_restart v1
+	VK_EXT_private_data v1
+	VK_EXT_provoking_vertex v1
+	VK_EXT_robustness2 v1
+	VK_EXT_sample_locations v1
+	VK_EXT_sampler_filter_minmax v2
+	VK_EXT_scalar_block_layout v1
+	VK_EXT_separate_stencil_usage v1
+	VK_EXT_shader_atomic_float v1
+	VK_EXT_shader_demote_to_helper_invocation v1
+	VK_EXT_shader_stencil_export v1
+	VK_EXT_shader_subgroup_ballot v1
+	VK_EXT_shader_subgroup_vote v1
+	VK_EXT_shader_viewport_index_layer v1
+	VK_EXT_subgroup_size_control v2
+	VK_EXT_surface_maintenance1 v1
+	VK_EXT_swapchain_colorspace v5
+	VK_EXT_swapchain_maintenance1 v1
+	VK_EXT_texel_buffer_alignment v1
+	VK_EXT_texture_compression_astc_hdr v1
+	VK_EXT_tooling_info v1
+	VK_EXT_vertex_attribute_divisor v3
+	VK_AMD_gpu_shader_half_float v2
+	VK_AMD_negative_viewport_height v1
+	VK_AMD_shader_image_load_store_lod v1
+	VK_AMD_shader_trinary_minmax v1
+	VK_GOOGLE_display_timing v1
+	VK_IMG_format_pvrtc v1
+	VK_INTEL_shader_integer_functions2 v1
+	VK_MVK_macos_surface v3
+	VK_MVK_moltenvk v37
+	VK_NV_fragment_shader_barycentric v1
+[mvk-info] GPU device:
+	model: Apple M3 Max
+	type: Integrated
+	vendorID: 0x106b
+	deviceID: 0x1a060209
+	pipelineCacheUUID: DB660224-1A06-0209-0000-000100000000
+	GPU memory available: 110100 MB
+	GPU memory used: 0 MB
+	Metal Shading Language 4.0
+	supports the following GPU Features:
+		GPU Family Metal 4
+		GPU Family Apple 9
+		GPU Family Mac 1
+		GPU Family Mac 2
+		Read-Write Texture Tier 2
+[mvk-info] Created VkInstance for Vulkan version 1.4.357, as requested by app, with the following 5 Vulkan extensions enabled:
+	VK_KHR_device_group_creation v1
+	VK_KHR_external_memory_capabilities v1
+	VK_KHR_get_physical_device_properties2 v2
+	VK_KHR_get_surface_capabilities2 v1
+	VK_KHR_surface v25
+[0 Apple M3 Max]  queueC=0[1]  queueT=0[1]  rebar=1  r-score=10
+[0 Apple M3 Max]  fp16-p/s/u/a=1/1/1/1  int8-p/s/u/a=1/1/1/1  bf16-p/s=1/0
+[0 Apple M3 Max]  subgroup=32(4~32)  ops=1/1/1/1/1/1/1/1/1/1
+[0 Apple M3 Max]  fp16-cm=0  int8-cm=0  bf16-cm=0  fp8-cm=0
+[mvk-info] Vulkan semaphores using MTLEvent.
+[mvk-info] Descriptor sets binding resources using Metal3 argument buffers.
+[mvk-info] Created VkDevice to run on GPU Apple M3 Max with the following 35 Vulkan extensions enabled:
+	VK_KHR_16bit_storage v1
+	VK_KHR_8bit_storage v1
+	VK_KHR_bind_memory2 v1
+	VK_KHR_buffer_device_address v1
+	VK_KHR_create_renderpass2 v1
+	VK_KHR_dedicated_allocation v3
+	VK_KHR_descriptor_update_template v1
+	VK_KHR_device_group v4
+	VK_KHR_driver_properties v1
+	VK_KHR_external_memory v1
+	VK_KHR_get_memory_requirements2 v1
+	VK_KHR_maintenance1 v2
+	VK_KHR_maintenance2 v1
+	VK_KHR_maintenance3 v1
+	VK_KHR_multiview v1
+	VK_KHR_portability_subset v1
+	VK_KHR_push_descriptor v2
+	VK_KHR_robustness2 v1
+	VK_KHR_sampler_ycbcr_conversion v14
+	VK_KHR_shader_float_controls v4
+	VK_KHR_shader_float_controls2 v1
+	VK_KHR_shader_float16_int8 v1
+	VK_KHR_shader_integer_dot_product v1
+	VK_KHR_shader_non_semantic_info v1
+	VK_KHR_shader_subgroup_extended_types v1
+	VK_KHR_shader_subgroup_rotate v2
+	VK_KHR_storage_buffer_storage_class v1
+	VK_KHR_swapchain v70
+	VK_KHR_vulkan_memory_model v3
+	VK_KHR_zero_initialize_workgroup_memory v1
+	VK_EXT_descriptor_indexing v2
+	VK_EXT_external_memory_host v1
+	VK_EXT_memory_budget v1
+	VK_EXT_shader_atomic_float v1
+	VK_EXT_subgroup_size_control v2
+ncnn=1.0.20260526 backend=Vulkan fp16=off input_blob=0 output_blob=40
+processed_frame=0
+processed_frame=1
+processed_frame=2
+processed_frame=3
+processed_frame=4
+processed_frame=5
+processed_frame=6
+processed_frame=7
+processed_frame=8
+processed_frame=9
+processed_frame=10
+processed_frame=11
+processed_frame=12
+processed_frame=13
+processed_frame=14
+processed_frame=15
+processed_frame=16
+processed_frame=17
+processed_frame=18
+processed_frame=19
+processed_frame=20
+processed_frame=21
+processed_frame=22
+processed_frame=23
+processed_frame=24
+processed_frame=25
+processed_frame=26
+processed_frame=27
+processed_frame=28
+processed_frame=29
+processed_frame=30
+processed_frame=31
+processed_frame=32
+processed_frame=33
+processed_frame=34
+processed_frame=35
+processed_frame=36
+processed_frame=37
+processed_frame=38
+processed_frame=39
+processed_frame=40
+processed_frame=41
+processed_frame=42
+processed_frame=43
+processed_frame=44
+processed_frame=45
+processed_frame=46
+processed_frame=47
+processed_frame=48
+processed_frame=49
+processed_frame=50
+processed_frame=51
+processed_frame=52
+processed_frame=53
+processed_frame=54
+processed_frame=55
+processed_frame=56
+processed_frame=57
+processed_frame=58
+processed_frame=59
+processed_frame=60
+processed_frame=61
+processed_frame=62
+processed_frame=63
+processed_frame=64
+processed_frame=65
+processed_frame=66
+processed_frame=67
+processed_frame=68
+processed_frame=69
+processed_frame=70
+processed_frame=71
+processed_frame=72
+processed_frame=73
+processed_frame=74
+processed_frame=75
+processed_frame=76
+processed_frame=77
+processed_frame=78
+processed_frame=79
+processed_frame=80
+processed_frame=81
+processed_frame=82
+processed_frame=83
+processed_frame=84
+processed_frame=85
+processed_frame=86
+processed_frame=87
+processed_frame=88
+processed_frame=89
+processed_frame=90
+processed_frame=91
+processed_frame=92
+processed_frame=93
+processed_frame=94
+processed_frame=95
+processed_frame=96
+processed_frame=97
+processed_frame=98
+processed_frame=99
+processed_frame=100
+processed_frame=101
+processed_frame=102
+processed_frame=103
+processed_frame=104
+processed_frame=105
+processed_frame=106
+processed_frame=107
+processed_frame=108
+processed_frame=109
+processed_frame=110
+processed_frame=111
+processed_frame=112
+processed_frame=113
+processed_frame=114
+processed_frame=115
+processed_frame=116
+processed_frame=117
+processed_frame=118
+processed_frame=119
+Total 120 frames.
+Archiving to file '/Users/universonic/Workspace/pixworker/benches/native-ncnn/target/.tmp2hntl6/encoded.mov' with ffmpeg...
+ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers
+  built with Apple clang version 21.0.0 (clang-2100.3.34.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/9.0.2 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvmaf --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      61.  1.102 / 61.  1.102
+  libavcodec     63.  1.102 / 63.  1.102
+  libavformat    63.  1.102 / 63.  1.102
+  libavdevice    63.  1.102 / 63.  1.102
+  libavfilter    12.  1.102 / 12.  1.102
+  libswscale     10.  1.102 / 10.  1.102
+  libswresample   7.  1.102 /  7.  1.102
+Input #0, image2, from '/Users/universonic/Workspace/pixworker/benches/native-ncnn/target/.tmp2hntl6/frames/%d.png':
+  Duration: 00:00:05.01, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown), 2560x1440, 23.98 fps, 23.98 tbr, 23.98 tbn
+[aist#1:0/pcm_s16le @ 0xaeac0c480] Guessed Channel Layout: stereo
+Input #1, wav, from '/Users/universonic/Workspace/pixworker/benches/native-ncnn/target/.tmp2hntl6/audio/0.wav':
+  Metadata:
+    encoder         : Lavf63.1.102
+  Duration: 00:00:05.00, bitrate: 1411 kb/s
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 44100 Hz, stereo, s16, 1411 kb/s
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> hevc (libx265))
+  Stream #1:0 -> #0:1 (pcm_s16le (native) -> pcm_s16le (native))
+Press [q] to stop, [?] for help
+x265 [info]: HEVC encoder version 4.3+1-e9b8812
+x265 [info]: build info [Mac OS X][clang 21.0.0][64 bit] 8bit+10bit+12bit
+x265 [info]: using cpu capabilities: NEON Neon_DotProd Neon_I8MM
+x265 [warning]: halving the quality when psy-rd is enabled for 444 input. Setting cbQpOffset = 6 and crQpOffset = 6
+x265 [info]: Main 4:4:4 profile, Level-8.5 (Main tier)
+x265 [info]: Thread pool created using 16 threads
+x265 [info]: frame threads / pool features       : 4 / wpp(23 rows)
+x265 [info]: Slices                              : 1
+x265 [info]: Coding QT: max CU size, min CU size : 64 / 8
+x265 [info]: Residual QT: max TU size, max depth : 32 / 1 inter / 1 intra
+x265 [info]: ME / range / subpel / merge         : hex / 57 / 2 / 3
+x265 [info]: Keyframe min / max / scenecut / bias  : 2 / 24 / 40 / 5.00 
+x265 [info]: Cb/Cr QP Offset                     : 6 / 6
+x265 [info]: Lookahead / bframes / badapt        : 20 / 4 / 2
+x265 [info]: b-pyramid / weightp / weightb       : 1 / 1 / 0
+x265 [info]: References / ref-limit  cu / depth  : 3 / off / on
+x265 [info]: Rate Control                        : Lossless
+x265 [info]: tools: rd=3 psy-rd=2.00 early-skip rskip mode=1 signhide tmvp
+x265 [info]: tools: b-intra strong-intra-smoothing lslices=8 deblock sao
+Output #0, mov, to '/Users/universonic/Workspace/pixworker/benches/native-ncnn/target/.tmp2hntl6/encoded.mov':
+  Metadata:
+    encoder         : Lavf63.1.102
+  Stream #0:0: Video: hevc (hvc1 / 0x31637668), yuv444p(tv, progressive), 2560x1440, q=2-31, 23.98 fps, 24k tbn
+    Metadata:
+      encoder         : Lavc63.1.102 libx265
+    Side data:
+      CPB properties: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+  Stream #0:1: Audio: pcm_s16le (sowt / 0x74776F73), 44100 Hz, stereo, s16, 1411 kb/s
+    Metadata:
+      encoder         : Lavc63.1.102 pcm_s16le
+frame=    0 fps=0.0 q=0.0 size=       0KiB time=00:00:00.27 bitrate=   1.0kbits/s speed=0.556x elapsed=0:00:00.50    frame=    2 fps=2.0 q=4.0 size=     512KiB time=00:00:00.27 bitrate=15053.9kbits/s speed=0.278x elapsed=0:00:01.00    frame=    6 fps=4.0 q=4.0 size=    2304KiB time=00:00:00.27 bitrate=67738.7kbits/s speed=0.185x elapsed=0:00:01.50    frame=   11 fps=5.5 q=4.0 size=    5120KiB time=00:00:00.74 bitrate=56448.4kbits/s speed=0.37x elapsed=0:00:02.00    frame=   13 fps=5.2 q=4.0 size=    6144KiB time=00:00:00.74 bitrate=67737.9kbits/s speed=0.296x elapsed=0:00:02.50    frame=   17 fps=5.6 q=4.0 size=    8192KiB time=00:00:00.74 bitrate=90317.1kbits/s speed=0.247x elapsed=0:00:03.01    frame=   21 fps=6.0 q=4.0 size=    9984KiB time=00:00:01.11 bitrate=73382.6kbits/s speed=0.317x elapsed=0:00:03.51    frame=   26 fps=6.5 q=4.0 size=   13056KiB time=00:00:01.11 bitrate=95961.8kbits/s speed=0.277x elapsed=0:00:04.02    frame=   30 fps=6.6 q=4.0 size=   15360KiB time=00:00:01.67 bitrate=75264.2kbits/s speed=0.37x elapsed=0:00:04.52    frame=   31 fps=6.2 q=4.0 size=   16384KiB time=00:00:01.67 bitrate=80281.8kbits/s speed=0.333x elapsed=0:00:05.02    frame=   35 fps=6.3 q=4.0 size=   19456KiB time=00:00:01.67 bitrate=95334.6kbits/s speed=0.302x elapsed=0:00:05.52    frame=   38 fps=6.3 q=4.0 size=   21504KiB time=00:00:01.67 bitrate=105369.8kbits/s speed=0.277x elapsed=0:00:06.03    frame=   39 fps=6.0 q=4.0 size=   22528KiB time=00:00:01.67 bitrate=110387.4kbits/s speed=0.256x elapsed=0:00:06.53    frame=   43 fps=6.1 q=4.0 size=   25856KiB time=00:00:02.13 bitrate=99152.3kbits/s speed=0.303x elapsed=0:00:07.04    frame=   44 fps=5.8 q=4.0 size=   26880KiB time=00:00:02.13 bitrate=103079.1kbits/s speed=0.283x elapsed=0:00:07.54    frame=   48 fps=6.0 q=4.0 size=   29952KiB time=00:00:02.13 bitrate=114859.5kbits/s speed=0.265x elapsed=0:00:08.05    frame=   50 fps=5.8 q=4.0 size=   32000KiB time=00:00:02.13 bitrate=122713.2kbits/s speed=0.25x elapsed=0:00:08.55    frame=   52 fps=5.7 q=4.0 size=   35072KiB time=00:00:02.41 bitrate=118975.1kbits/s speed=0.267x elapsed=0:00:09.05    frame=   53 fps=5.5 q=4.0 size=   35072KiB time=00:00:02.41 bitrate=118975.1kbits/s speed=0.253x elapsed=0:00:09.56    frame=   57 fps=5.7 q=4.0 size=   39680KiB time=00:00:02.41 bitrate=134606.9kbits/s speed=0.24x elapsed=0:00:10.06    frame=   61 fps=5.8 q=4.0 size=   44032KiB time=00:00:02.78 bitrate=129454.2kbits/s speed=0.264x elapsed=0:00:10.56    frame=   61 fps=5.5 q=4.0 size=   44032KiB time=00:00:02.78 bitrate=129454.2kbits/s speed=0.252x elapsed=0:00:11.07    frame=   63 fps=5.4 q=4.0 size=   46592KiB time=00:00:02.78 bitrate=136980.6kbits/s speed=0.241x elapsed=0:00:11.57    frame=   66 fps=5.5 q=4.0 size=   49920KiB time=00:00:02.78 bitrate=146764.9kbits/s speed=0.231x elapsed=0:00:12.08    frame=   67 fps=5.3 q=4.0 size=   52224KiB time=00:00:03.25 bitrate=131604.6kbits/s speed=0.258x elapsed=0:00:12.58    frame=   70 fps=5.3 q=4.0 size=   54272KiB time=00:00:03.25 bitrate=136765.5kbits/s speed=0.248x elapsed=0:00:13.08    frame=   74 fps=5.4 q=4.0 size=   58880KiB time=00:00:03.25 bitrate=148377.7kbits/s speed=0.239x elapsed=0:00:13.59    frame=   76 fps=5.4 q=4.0 size=   60928KiB time=00:00:03.25 bitrate=153538.6kbits/s speed=0.231x elapsed=0:00:14.10    frame=   78 fps=5.3 q=4.0 size=   64512KiB time=00:00:03.71 bitrate=142249.0kbits/s speed=0.254x elapsed=0:00:14.60    frame=   82 fps=5.4 q=4.0 size=   67840KiB time=00:00:03.71 bitrate=149587.3kbits/s speed=0.246x elapsed=0:00:15.11    frame=   83 fps=5.3 q=4.0 size=   69120KiB time=00:00:03.71 bitrate=152409.7kbits/s speed=0.238x elapsed=0:00:15.61    frame=   87 fps=5.4 q=4.0 size=   73216KiB time=00:00:03.71 bitrate=161441.3kbits/s speed=0.23x elapsed=0:00:16.12    frame=   88 fps=5.3 q=4.0 size=   74496KiB time=00:00:03.71 bitrate=164263.7kbits/s speed=0.223x elapsed=0:00:16.62    frame=   92 fps=5.4 q=4.0 size=   78592KiB time=00:00:04.17 bitrate=154040.4kbits/s speed=0.244x elapsed=0:00:17.12    frame=   93 fps=5.3 q=4.0 size=   79872KiB time=00:00:04.17 bitrate=156549.2kbits/s speed=0.237x elapsed=0:00:17.62    frame=   97 fps=5.4 q=4.0 size=   83968KiB time=00:00:04.17 bitrate=164577.3kbits/s speed=0.231x elapsed=0:00:18.12    frame=   98 fps=5.3 q=4.0 size=   85248KiB time=00:00:04.17 bitrate=167086.1kbits/s speed=0.224x elapsed=0:00:18.63    frame=  103 fps=5.4 q=4.0 size=   90368KiB time=00:00:04.64 bitrate=159409.2kbits/s speed=0.243x elapsed=0:00:19.13    frame=  104 fps=5.3 q=4.0 size=   91392KiB time=00:00:04.64 bitrate=161215.5kbits/s speed=0.236x elapsed=0:00:19.64    frame=  107 fps=5.3 q=4.0 size=   94464KiB time=00:00:04.64 bitrate=166634.6kbits/s speed=0.231x elapsed=0:00:20.14    frame=  110 fps=5.3 q=4.0 size=   97536KiB time=00:00:04.64 bitrate=172053.6kbits/s speed=0.225x elapsed=0:00:20.65    frame=  111 fps=5.2 q=4.0 size=   99584KiB time=00:00:05.00 bitrate=163016.5kbits/s speed=0.237x elapsed=0:00:21.15    frame=  116 fps=5.4 q=4.0 size=  103424KiB time=00:00:05.00 bitrate=169302.5kbits/s speed=0.231x elapsed=0:00:21.65    [out#0/mov @ 0xaeb0109c0] video:106829KiB audio:862KiB subtitle:0KiB other streams:0KiB global headers:2KiB muxing overhead: 0.005416%
+frame=  120 fps=5.4 q=4.0 Lsize=  107697KiB time=00:00:05.00 bitrate=176297.1kbits/s speed=0.226x elapsed=0:00:22.09    
+x265 [info]: frame I:      6, Avg QP:4.00  kb/s: 186988.05
+x265 [info]: frame P:     26, Avg QP:4.00  kb/s: 202014.84
+x265 [info]: frame B:     88, Avg QP:4.00  kb/s: 166000.50
+x265 [info]: Weighted P-Frames: Y:0.0% UV:0.0%
+x265 [info]: lossless compression ratio 4.04::1
+
+encoded 120 frames in 22.06s (5.44 fps), 174853.00 kb/s, Avg QP:4.00
+frames=120 output_bytes=110281622 extract_ms=1147.362 session_load_ms=262.008 preprocess_ms=31.799 infer_sync_readback_ms=34819.865 postprocess_ms=29881.473 png_io_ms=3062.226 archive_publish_ms=22198.163 command_to_file_ms=91520.929
+[mvk-info] Destroyed VkDevice on GPU Apple M3 Max with 35 Vulkan extensions enabled.
+[mvk-info] Destroyed VkPhysicalDevice for GPU Apple M3 Max with 0 MB of GPU memory still allocated.
+[mvk-info] Destroying VkInstance for Vulkan version 1.4.357 with 5 Vulkan extensions enabled.
+       91.60 real       261.28 user         3.54 sys
+          1769652224  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              175764  page reclaims
+                1301  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                 203  voluntary context switches
+              596296  involuntary context switches
+        629633758019  instructions retired
+        125510159275  cycles elapsed
+          2698495272  peak memory footprint

@@ -1,0 +1,11 @@
+[package]
+name = "native-candle"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "=1.0.104"
+candle-core = { version = "=0.11.0", features = ["metal"] }
+candle-nn = "=0.11.0"
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+safetensors = "=0.8.0"

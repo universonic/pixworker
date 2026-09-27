@@ -1,0 +1,61 @@
+{
+  "scope": "Exploratory Linux RTX 4090 comparison; not the Apple M3 Max migration decision",
+  "host": "jamesjiang-4090",
+  "input": {
+    "sha256": "d5fc5d320f4861fc8ac52892991484779347bc8ba7ee160d9b6d1bd470bd3623",
+    "frames": 120,
+    "fps": "24000/1001",
+    "source_resolution": "1280x720",
+    "output_resolution": "2560x1440"
+  },
+  "runtime": {
+    "gpu": "NVIDIA GeForce RTX 4090, 24564 MiB",
+    "driver": "595.84",
+    "initial_gpu_used_mib": 11285,
+    "initial_gpu_free_mib": 12799,
+    "ort": "2.0.0-rc.13; TensorRT registration failed (libnvinfer.so.10 absent); CUDA registered; profile 38/38 nodes CUDA",
+    "tch": "0.24.0, libtorch/PyTorch 2.11.0+cu128; CUDA convolutions with TF32 disabled",
+    "ort_cuda_libraries": "nvidia-cublas 13.0.2.14 and nvidia-cuda-runtime 13.0.96, isolated in experiment directory",
+    "ffmpeg": "6.1.1-3ubuntu5",
+    "rustc": "1.98.1",
+    "shared_gpu": "Ollama occupied about 10868 MiB and Comfy about 386 MiB throughout the initial check"
+  },
+  "short_runs": [
+    { "pair": 1, "order": "ort_then_tch", "ort_wall_s": 98.68, "tch_wall_s": 69.38, "ort_over_tch": 1.42231 },
+    { "pair": 2, "order": "tch_then_ort", "ort_wall_s": 96.04, "tch_wall_s": 69.55, "ort_over_tch": 1.38088 }
+  ],
+  "median_short_ratio": 1.40159,
+  "ort_cpu_linux_short_wall_s": 321.26,
+  "serial_frames_after_warmup": {
+    "count": 120,
+    "ort_cuda": { "median_reported_api_ms": 137.031, "reported_api_fps": 7.505, "total_fps": 7.119 },
+    "tch_cuda": { "median_reported_api_ms": 133.516, "reported_api_fps": 7.603, "total_fps": 6.717 },
+    "api_timing_boundary": "ORT Session::run includes host-to-device input transfer; tch infer excludes it because frame loading and host-to-device transfer are recorded as preprocess. Both include synchronized output readback. Only total_fps includes all input adaptation on both sides."
+  },
+  "quality_vs_linux_ort_cpu": {
+    "tch_cuda": { "mean_rgb_psnr_db": 94.151875, "min_rgb_psnr_db": 92.203162, "min_ssim_all": 0.999999, "roi_min_rgb_psnr_db": 92.463435 },
+    "ort_cuda": { "mean_rgb_psnr_db": 66.410794, "min_rgb_psnr_db": 65.003460, "min_ssim_all": 0.999677 }
+  },
+  "quality_cross_machine_control": {
+    "mac_vs_linux_ort_cpu_full_video_ssim": 0.991129,
+    "mac_vs_linux_ort_cpu_frame0_float_psnr_db": 149.006488,
+    "note": "Cross-machine final-video comparison includes post-inference platform differences and is not the Linux candidate gate"
+  },
+  "gpu_monitor": {
+    "ort_peak_total_used_mib": 13766,
+    "ort_min_free_mib": 10318,
+    "ort_peak_temperature_c": 59,
+    "tch_peak_total_used_mib": 12570,
+    "tch_min_free_mib": 11514,
+    "tch_peak_temperature_c": 58
+  },
+  "limitations": [
+    "Only two paired 5-second runs, not five 3-minute pairs or full-video verification",
+    "GPU was shared with pre-existing processes; timings include unrelated scheduling effects",
+    "End-to-end difference mostly reflects CPU postprocessing and PNG I/O, not CUDA inference",
+    "No cross-machine speed comparison with the Apple M3 Max results"
+  ],
+  "evidence_archive_sha256": "5b80d9a1ea358ab166d4eab3efb3956d9c46a054be66851237e79309919dd652",
+  "remote_cleanup": "verified_deleted: /tmp/pixworker-4090-GWfL65rY",
+  "authorized_system_package_remaining": "libssl-dev 3.0.13-0ubuntu3.15"
+}

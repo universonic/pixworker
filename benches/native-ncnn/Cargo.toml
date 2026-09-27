@@ -1,0 +1,13 @@
+[package]
+name = "native-ncnn"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+pixworker = { path = "../.." }
+tempfile = "=3.23.0"
+
+[build-dependencies]
+bindgen = "=0.73.2"

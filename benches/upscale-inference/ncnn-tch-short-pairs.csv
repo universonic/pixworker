@@ -1,0 +1,3 @@
+pair,order,ncnn_wall_s,tch_wall_s,ncnn_over_tch,ncnn_frames,tch_frames
+1,ncnn_then_tch,91.60,73.24,1.25068,120,120
+2,tch_then_ncnn,92.24,72.19,1.27774,120,120

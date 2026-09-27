@@ -1,0 +1,3 @@
+pair,order,ort_wall_s,tch_wall_s,ort_to_tch_ratio,ort_rss_bytes,tch_rss_bytes,ort_inference_s,tch_inference_s,ort_archive_s,tch_archive_s
+1,ORT-then-tch,145.55,79.88,1.822,10425090048,1736785920,90.960950,15.568076,18.767601,26.982909
+2,tch-then-ORT,146.21,69.96,2.090,10237984768,1738588160,91.508072,15.299919,18.547969,19.238795

@@ -1,0 +1,3 @@
+pair,order,ort_wall_s,tch_wall_s,ort_over_tch,ort_frames,tch_frames
+1,ort_then_tch,98.68,69.38,1.42231,120,120
+2,tch_then_ort,96.04,69.55,1.38088,120,120

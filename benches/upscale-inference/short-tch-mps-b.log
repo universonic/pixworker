@@ -1,0 +1,250 @@
+backend=Mps input=tmp/upscale-bench-20260926-2345/short.mkv output=tmp/upscale-bench-20260926-2345/short-tch-mps-b.mov fps=24000/1001 vfi=1 threads_intra=1 threads_inter=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTORCH_ENABLE_MPS_FALLBACK=0
+Extracting to directory '/Users/universonic/Workspace/pixworker/benches/native-tch/target/.tmpRkwLrl/extracted' with ffmpeg...
+ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers
+  built with Apple clang version 21.0.0 (clang-2100.3.34.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/9.0.2 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvmaf --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      61.  1.102 / 61.  1.102
+  libavcodec     63.  1.102 / 63.  1.102
+  libavformat    63.  1.102 / 63.  1.102
+  libavdevice    63.  1.102 / 63.  1.102
+  libavfilter    12.  1.102 / 12.  1.102
+  libswscale     10.  1.102 / 10.  1.102
+  libswresample   7.  1.102 /  7.  1.102
+Input #0, matroska,webm, from 'tmp/upscale-bench-20260926-2345/short.mkv':
+  Metadata:
+    ENCODER         : Lavf63.1.102
+  Duration: 00:00:05.01, start: 0.000000, bitrate: 21675 kb/s
+  Stream #0:0: Video: h264 (High 4:4:4 Predictive), yuv420p(tv, progressive), 1280x720 [SAR 1:1 DAR 16:9], 23.98 fps, 23.98 tbr, 1k tbn
+    Metadata:
+      ENCODER         : Lavc63.1.102 libx264
+      DURATION        : 00:00:05.005000000
+  Stream #0:1: Audio: flac, 48000 Hz, stereo, s32 (24 bit)
+    Metadata:
+      ENCODER         : Lavc63.1.102 flac
+      DURATION        : 00:00:05.006000000
+Stream mapping:
+  Stream #0:0 -> #0:0 (h264 (native) -> png (native))
+  Stream #0:1 -> #1:0 (flac (native) -> pcm_s16le (native))
+Press [q] to stop, [?] for help
+Output #1, wav, to '/Users/universonic/Workspace/pixworker/benches/native-tch/target/.tmpRkwLrl/extracted/audio/0.wav':
+  Metadata:
+    ISFT            : Lavf63.1.102
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 44100 Hz, stereo, s16, 1411 kb/s
+    Metadata:
+      encoder         : Lavc63.1.102 pcm_s16le
+      DURATION        : 00:00:05.006000000
+Output #0, image2, to '/Users/universonic/Workspace/pixworker/benches/native-tch/target/.tmpRkwLrl/extracted/frames/%d.png':
+  Metadata:
+    encoder         : Lavf63.1.102
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown, progressive), 1280x720 [SAR 1:1 DAR 16:9], q=2-31, 200 kb/s, 23.98 fps, 23.98 tbn
+    Metadata:
+      encoder         : Lavc63.1.102 png
+      DURATION        : 00:00:05.005000000
+frame=   51 fps=0.0 q=-0.0 size=N/A time=00:00:03.88 bitrate=N/A speed=7.71x elapsed=0:00:00.50    [out#0/image2 @ 0x754840300] video:46080KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+[out#1/wav @ 0x754841500] video:0KiB audio:862KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.008836%
+frame=  120 fps= 91 q=-0.0 Lsize=N/A time=00:00:05.00 bitrate=N/A speed=3.79x elapsed=0:00:01.32    
+Extract 120 frames in total.
+loaded 53 FP32 tensors, 18 conv + 17 PReLU, device=Mps
+processed_frame=0
+processed_frame=1
+processed_frame=2
+processed_frame=3
+processed_frame=4
+processed_frame=5
+processed_frame=6
+processed_frame=7
+processed_frame=8
+processed_frame=9
+processed_frame=10
+processed_frame=11
+processed_frame=12
+processed_frame=13
+processed_frame=14
+processed_frame=15
+processed_frame=16
+processed_frame=17
+processed_frame=18
+processed_frame=19
+processed_frame=20
+processed_frame=21
+processed_frame=22
+processed_frame=23
+processed_frame=24
+processed_frame=25
+processed_frame=26
+processed_frame=27
+processed_frame=28
+processed_frame=29
+processed_frame=30
+processed_frame=31
+processed_frame=32
+processed_frame=33
+processed_frame=34
+processed_frame=35
+processed_frame=36
+processed_frame=37
+processed_frame=38
+processed_frame=39
+processed_frame=40
+processed_frame=41
+processed_frame=42
+processed_frame=43
+processed_frame=44
+processed_frame=45
+processed_frame=46
+processed_frame=47
+processed_frame=48
+processed_frame=49
+processed_frame=50
+processed_frame=51
+processed_frame=52
+processed_frame=53
+processed_frame=54
+processed_frame=55
+processed_frame=56
+processed_frame=57
+processed_frame=58
+processed_frame=59
+processed_frame=60
+processed_frame=61
+processed_frame=62
+processed_frame=63
+processed_frame=64
+processed_frame=65
+processed_frame=66
+processed_frame=67
+processed_frame=68
+processed_frame=69
+processed_frame=70
+processed_frame=71
+processed_frame=72
+processed_frame=73
+processed_frame=74
+processed_frame=75
+processed_frame=76
+processed_frame=77
+processed_frame=78
+processed_frame=79
+processed_frame=80
+processed_frame=81
+processed_frame=82
+processed_frame=83
+processed_frame=84
+processed_frame=85
+processed_frame=86
+processed_frame=87
+processed_frame=88
+processed_frame=89
+processed_frame=90
+processed_frame=91
+processed_frame=92
+processed_frame=93
+processed_frame=94
+processed_frame=95
+processed_frame=96
+processed_frame=97
+processed_frame=98
+processed_frame=99
+processed_frame=100
+processed_frame=101
+processed_frame=102
+processed_frame=103
+processed_frame=104
+processed_frame=105
+processed_frame=106
+processed_frame=107
+processed_frame=108
+processed_frame=109
+processed_frame=110
+processed_frame=111
+processed_frame=112
+processed_frame=113
+processed_frame=114
+processed_frame=115
+processed_frame=116
+processed_frame=117
+processed_frame=118
+processed_frame=119
+Total 120 frames.
+Archiving to file '/Users/universonic/Workspace/pixworker/benches/native-tch/target/.tmpRkwLrl/encoded.mov' with ffmpeg...
+ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers
+  built with Apple clang version 21.0.0 (clang-2100.3.34.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/9.0.2 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvmaf --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      61.  1.102 / 61.  1.102
+  libavcodec     63.  1.102 / 63.  1.102
+  libavformat    63.  1.102 / 63.  1.102
+  libavdevice    63.  1.102 / 63.  1.102
+  libavfilter    12.  1.102 / 12.  1.102
+  libswscale     10.  1.102 / 10.  1.102
+  libswresample   7.  1.102 /  7.  1.102
+Input #0, image2, from '/Users/universonic/Workspace/pixworker/benches/native-tch/target/.tmpRkwLrl/frames/%d.png':
+  Duration: 00:00:05.01, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown), 2560x1440, 23.98 fps, 23.98 tbr, 23.98 tbn
+[aist#1:0/pcm_s16le @ 0x838c0c480] Guessed Channel Layout: stereo
+Input #1, wav, from '/Users/universonic/Workspace/pixworker/benches/native-tch/target/.tmpRkwLrl/audio/0.wav':
+  Metadata:
+    encoder         : Lavf63.1.102
+  Duration: 00:00:05.00, bitrate: 1411 kb/s
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 44100 Hz, stereo, s16, 1411 kb/s
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> hevc (libx265))
+  Stream #1:0 -> #0:1 (pcm_s16le (native) -> pcm_s16le (native))
+Press [q] to stop, [?] for help
+x265 [info]: HEVC encoder version 4.3+1-e9b8812
+x265 [info]: build info [Mac OS X][clang 21.0.0][64 bit] 8bit+10bit+12bit
+x265 [info]: using cpu capabilities: NEON Neon_DotProd Neon_I8MM
+x265 [warning]: halving the quality when psy-rd is enabled for 444 input. Setting cbQpOffset = 6 and crQpOffset = 6
+x265 [info]: Main 4:4:4 profile, Level-8.5 (Main tier)
+x265 [info]: Thread pool created using 16 threads
+x265 [info]: frame threads / pool features       : 4 / wpp(23 rows)
+x265 [info]: Slices                              : 1
+x265 [info]: Coding QT: max CU size, min CU size : 64 / 8
+x265 [info]: Residual QT: max TU size, max depth : 32 / 1 inter / 1 intra
+x265 [info]: ME / range / subpel / merge         : hex / 57 / 2 / 3
+x265 [info]: Keyframe min / max / scenecut / bias  : 2 / 24 / 40 / 5.00 
+x265 [info]: Cb/Cr QP Offset                     : 6 / 6
+x265 [info]: Lookahead / bframes / badapt        : 20 / 4 / 2
+x265 [info]: b-pyramid / weightp / weightb       : 1 / 1 / 0
+x265 [info]: References / ref-limit  cu / depth  : 3 / off / on
+x265 [info]: Rate Control                        : Lossless
+x265 [info]: tools: rd=3 psy-rd=2.00 early-skip rskip mode=1 signhide tmvp
+x265 [info]: tools: b-intra strong-intra-smoothing lslices=8 deblock sao
+Output #0, mov, to '/Users/universonic/Workspace/pixworker/benches/native-tch/target/.tmpRkwLrl/encoded.mov':
+  Metadata:
+    encoder         : Lavf63.1.102
+  Stream #0:0: Video: hevc (hvc1 / 0x31637668), yuv444p(tv, progressive), 2560x1440, q=2-31, 23.98 fps, 24k tbn
+    Metadata:
+      encoder         : Lavc63.1.102 libx265
+    Side data:
+      CPB properties: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+  Stream #0:1: Audio: pcm_s16le (sowt / 0x74776F73), 44100 Hz, stereo, s16, 1411 kb/s
+    Metadata:
+      encoder         : Lavc63.1.102 pcm_s16le
+frame=    0 fps=0.0 q=0.0 size=       0KiB time=00:00:00.65 bitrate=   0.4kbits/s speed=1.29x elapsed=0:00:00.50    frame=    5 fps=5.0 q=4.0 size=    2304KiB time=00:00:00.65 bitrate=29030.8kbits/s speed=0.645x elapsed=0:00:01.00    frame=   11 fps=7.3 q=4.0 size=    5120KiB time=00:00:00.65 bitrate=64512.4kbits/s speed=0.43x elapsed=0:00:01.51    frame=   12 fps=6.0 q=4.0 size=    5376KiB time=00:00:00.65 bitrate=67738.0kbits/s speed=0.323x elapsed=0:00:02.01    frame=   17 fps=6.8 q=4.0 size=    8192KiB time=00:00:01.11 bitrate=60211.4kbits/s speed=0.443x elapsed=0:00:02.51    frame=   20 fps=6.6 q=4.0 size=    9728KiB time=00:00:01.11 bitrate=71501.0kbits/s speed=0.369x elapsed=0:00:03.01    frame=   22 fps=6.2 q=4.0 size=   10752KiB time=00:00:01.11 bitrate=79027.4kbits/s speed=0.316x elapsed=0:00:03.52    frame=   28 fps=7.0 q=4.0 size=   14336KiB time=00:00:01.57 bitrate=74378.7kbits/s speed=0.392x elapsed=0:00:04.02    frame=   31 fps=6.8 q=4.0 size=   16384KiB time=00:00:01.57 bitrate=85004.2kbits/s speed=0.348x elapsed=0:00:04.53    frame=   35 fps=6.9 q=4.0 size=   19456KiB time=00:00:01.57 bitrate=100942.5kbits/s speed=0.313x elapsed=0:00:05.03    frame=   39 fps=7.0 q=4.0 size=   22528KiB time=00:00:02.04 bitrate=90316.9kbits/s speed=0.369x elapsed=0:00:05.54    frame=   43 fps=7.1 q=4.0 size=   25856KiB time=00:00:02.04 bitrate=103659.2kbits/s speed=0.338x elapsed=0:00:06.04    frame=   45 fps=6.9 q=4.0 size=   27648KiB time=00:00:02.04 bitrate=110843.5kbits/s speed=0.312x elapsed=0:00:06.54    frame=   49 fps=6.9 q=4.0 size=   32000KiB time=00:00:02.50 bitrate=104533.5kbits/s speed=0.356x elapsed=0:00:07.05    frame=   52 fps=6.9 q=4.0 size=   33792KiB time=00:00:02.50 bitrate=110387.3kbits/s speed=0.332x elapsed=0:00:07.55    frame=   53 fps=6.6 q=4.0 size=   35072KiB time=00:00:02.50 bitrate=114568.7kbits/s speed=0.311x elapsed=0:00:08.05    frame=   57 fps=6.7 q=4.0 size=   39680KiB time=00:00:02.50 bitrate=129621.5kbits/s speed=0.293x elapsed=0:00:08.56    frame=   57 fps=6.3 q=4.0 size=   39680KiB time=00:00:02.50 bitrate=129621.5kbits/s speed=0.277x elapsed=0:00:09.06    frame=   61 fps=6.4 q=4.0 size=   44032KiB time=00:00:02.97 bitrate=121363.3kbits/s speed=0.311x elapsed=0:00:09.56    frame=   62 fps=6.2 q=4.0 size=   45312KiB time=00:00:02.97 bitrate=124891.3kbits/s speed=0.295x elapsed=0:00:10.06    frame=   62 fps=5.9 q=4.0 size=   45312KiB time=00:00:02.97 bitrate=124891.3kbits/s speed=0.281x elapsed=0:00:10.56    frame=   66 fps=6.0 q=4.0 size=   49920KiB time=00:00:02.97 bitrate=137592.1kbits/s speed=0.268x elapsed=0:00:11.06    frame=   70 fps=6.0 q=4.0 size=   54272KiB time=00:00:02.97 bitrate=149587.3kbits/s speed=0.257x elapsed=0:00:11.57    frame=   71 fps=5.9 q=4.0 size=   56576KiB time=00:00:03.34 bitrate=138611.3kbits/s speed=0.277x elapsed=0:00:12.07    frame=   75 fps=6.0 q=4.0 size=   59904KiB time=00:00:03.34 bitrate=146764.9kbits/s speed=0.266x elapsed=0:00:12.58    frame=   77 fps=5.9 q=4.0 size=   61952KiB time=00:00:03.34 bitrate=151782.5kbits/s speed=0.255x elapsed=0:00:13.09    frame=   79 fps=5.8 q=4.0 size=   64512KiB time=00:00:03.34 bitrate=158054.5kbits/s speed=0.246x elapsed=0:00:13.59    frame=   83 fps=5.9 q=4.0 size=   69120KiB time=00:00:03.80 bitrate=148692.4kbits/s speed=0.27x elapsed=0:00:14.09    frame=   87 fps=6.0 q=4.0 size=   73216KiB time=00:00:03.80 bitrate=157503.7kbits/s speed=0.261x elapsed=0:00:14.60    frame=   88 fps=5.8 q=4.0 size=   74496KiB time=00:00:03.80 bitrate=160257.3kbits/s speed=0.252x elapsed=0:00:15.10    frame=   92 fps=5.9 q=4.0 size=   78592KiB time=00:00:04.27 bitrate=150691.7kbits/s speed=0.274x elapsed=0:00:15.60    frame=   93 fps=5.8 q=4.0 size=   79872KiB time=00:00:04.27 bitrate=153145.9kbits/s speed=0.265x elapsed=0:00:16.11    frame=   97 fps=5.8 q=4.0 size=   83968KiB time=00:00:04.27 bitrate=160999.6kbits/s speed=0.257x elapsed=0:00:16.61    frame=  100 fps=5.8 q=4.0 size=   87296KiB time=00:00:04.27 bitrate=167380.6kbits/s speed=0.25x elapsed=0:00:17.12    frame=  103 fps=5.8 q=4.0 size=   91392KiB time=00:00:04.73 bitrate=158054.5kbits/s speed=0.269x elapsed=0:00:17.62    frame=  108 fps=6.0 q=4.0 size=   95488KiB time=00:00:04.73 bitrate=165138.1kbits/s speed=0.261x elapsed=0:00:18.12    frame=  111 fps=6.0 q=4.0 size=   98560KiB time=00:00:04.73 bitrate=170450.9kbits/s speed=0.254x elapsed=0:00:18.63    frame=  115 fps=6.0 q=4.0 size=  102656KiB time=00:00:04.71 bitrate=178432.2kbits/s speed=0.246x elapsed=0:00:19.14    frame=  117 fps=6.0 q=4.0 size=  104448KiB time=00:00:04.79 bitrate=178389.6kbits/s speed=0.244x elapsed=0:00:19.64    [out#0/mov @ 0x8390303c0] video:106827KiB audio:862KiB subtitle:0KiB other streams:0KiB global headers:2KiB muxing overhead: 0.005417%
+frame=  120 fps=6.1 q=4.0 Lsize=  107695KiB time=00:00:05.00 bitrate=176294.3kbits/s speed=0.254x elapsed=0:00:19.68    
+x265 [info]: frame I:      6, Avg QP:4.00  kb/s: 186990.55
+x265 [info]: frame P:     26, Avg QP:4.00  kb/s: 202010.38
+x265 [info]: frame B:     88, Avg QP:4.00  kb/s: 165997.87
+x265 [info]: Weighted P-Frames: Y:0.0% UV:0.0%
+x265 [info]: lossless compression ratio 4.04::1
+
+encoded 120 frames in 19.65s (6.11 fps), 174850.22 kb/s, Avg QP:4.00
+frames=120 output_bytes=110279887 extract_ms=1372.555 session_load_ms=50.758 preprocess_ms=556.279 infer_sync_readback_ms=14999.936 postprocess_ms=31687.025 png_io_ms=3041.140 archive_publish_ms=19795.281 command_to_file_ms=71758.809
+       72.19 real       255.87 user         2.89 sys
+          1773617152  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              267421  page reclaims
+                4054  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                 293  voluntary context switches
+              321456  involuntary context switches
+        642869226197  instructions retired
+        129788983181  cycles elapsed
+          2448459576  peak memory footprint

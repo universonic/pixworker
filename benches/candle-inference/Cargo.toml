@@ -1,0 +1,10 @@
+[package]
+name = "candle-inference"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+candle-core = { version = "=0.11.0", features = ["metal"] }
+candle-onnx = "=0.11.0"
+image = { version = "0.25", default-features = false, features = ["png"] }

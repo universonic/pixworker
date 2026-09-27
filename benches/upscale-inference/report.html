@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <link rel="icon" href="data:,">
+  <title>Apple Silicon 放大推理对照 | pixworker</title>
+  <style>
+    :root {
+      --paper: #f7f9f8;
+      --white: #fff;
+      --ink: #182c30;
+      --muted: #53676a;
+      --line: #d6e0df;
+      --teal: #087f83;
+      --teal-light: #e5f2f0;
+      --blue: #536f88;
+      --orange: #bd5436;
+      --orange-light: #fff0e9;
+      --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+      --text: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--text); font-size: 14px; line-height: 1.6; }
+    a { color: var(--teal); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    a:hover { color: var(--orange); }
+    a:focus-visible, summary:focus-visible { outline: 2px solid var(--orange); outline-offset: 4px; }
+    .shell { max-width: 1400px; margin: auto; padding: 0 28px 100px; }
+    .mast { min-height: 54px; display: flex; justify-content: space-between; align-items: center; gap: 16px; border-bottom: 1px solid var(--ink); font: 12px var(--mono); }
+    .mast strong { font-size: 13px; color: var(--teal); }
+    .mast span { color: var(--muted); text-align: right; }
+    .layout { display: grid; grid-template-columns: 185px minmax(0, 1fr); gap: 48px; }
+    aside { position: sticky; top: 0; align-self: start; padding-top: 42px; }
+    aside .side-label { font: 11px var(--mono); color: var(--muted); margin-bottom: 16px; }
+    aside nav { display: grid; gap: 2px; }
+    aside nav a { display: block; padding: 9px 11px; border-left: 2px solid transparent; color: var(--ink); text-decoration: none; }
+    aside nav a:hover, aside nav a:focus-visible { border-color: var(--teal); background: var(--teal-light); }
+    aside .side-foot { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 30px; color: var(--muted); font-size: 12px; }
+    main { min-width: 0; }
+    header { padding: 40px 0 30px; }
+    .kicker { font: 11px var(--mono); color: var(--teal); margin: 0 0 12px; }
+    h1 { font-size: 29px; line-height: 1.24; font-weight: 650; margin: 0 0 12px; }
+    .subtitle { color: var(--muted); font-size: 15px; max-width: 750px; margin: 0; }
+    .status { margin-top: 28px; border-left: 4px solid var(--orange); background: var(--orange-light); padding: 14px 18px; display: flex; gap: 18px; align-items: baseline; }
+    .status strong { white-space: nowrap; color: #8b361e; }
+    .status p { margin: 0; }
+    section { padding: 34px 0 38px; border-top: 1px solid var(--line); scroll-margin-top: 25px; }
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 15px; margin-bottom: 24px; }
+    h2 { font-size: 19px; font-weight: 650; line-height: 1.35; margin: 0; }
+    h3 { font-size: 14px; margin: 0 0 8px; }
+    .section-head small { color: var(--muted); font: 11px var(--mono); }
+    .callout { padding: 0 0 0 16px; margin-top: 18px; border-left: 2px solid var(--orange); color: var(--muted); }
+    .measure { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--ink); border-bottom: 1px solid var(--line); }
+    .measure > div { padding: 22px 16px 24px 0; }
+    .measure > div + div { padding-left: 22px; border-left: 1px solid var(--line); }
+    .measure dt { font-size: 12px; color: var(--muted); }
+    .measure dd { margin: 8px 0 0; font: 500 30px/1.1 var(--mono); letter-spacing: 0; }
+    .measure dd em { font: 12px var(--text); color: var(--muted); font-style: normal; }
+    .measure dd.winner { color: var(--teal); }
+    .measure dd.threshold { color: var(--orange); }
+    .pairs { width: 100%; margin-top: 22px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    .pairs caption { text-align: left; margin-bottom: 5px; color: var(--muted); font-size: 12px; }
+    .pairs th, .pairs td { padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .pairs th { text-align: left; font-weight: 600; }
+    .pairs thead th { font-size: 11px; font-weight: 400; color: var(--muted); }
+    .pairs th:not(:first-child), .pairs td { text-align: right; }
+    .pairs td { font: 12px var(--mono); color: var(--muted); }
+    .pairs td:last-child { color: var(--teal); font-weight: 700; }
+    .score-title { display: flex; justify-content: space-between; gap: 15px; color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+    .axis { display: flex; justify-content: space-between; margin: 0 105px 10px 240px; color: var(--muted); font: 11px var(--mono); }
+    .rankings { border-top: 1px solid var(--line); }
+    .rank-row { display: grid; grid-template-columns: 225px minmax(100px, 1fr) 92px; align-items: center; column-gap: 15px; min-height: 44px; border-bottom: 1px solid var(--line); }
+    .rank-label { min-width: 0; display: flex; gap: 7px; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rank-label strong { overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; }
+    .tag { border: 1px solid var(--line); color: var(--muted); padding: 1px 4px; font: 10px var(--mono); flex: none; }
+    .track { height: 9px; background: #e5ebeb; position: relative; }
+    .track::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: var(--width); min-width: 2px; background: var(--blue); }
+    .rank-row.native .track::before { background: var(--teal); }
+    .rank-row.baseline .track::before { background: var(--ink); }
+    .rank-value { text-align: right; font: 13px var(--mono); }
+    .rank-row.fastest .rank-value { color: var(--teal); font-weight: 700; }
+    .rank-foot { display: flex; flex-wrap: wrap; gap: 16px; color: var(--muted); font-size: 12px; margin-top: 16px; }
+    .key { display: inline-block; width: 10px; height: 8px; margin-right: 5px; background: var(--blue); }
+    .key.native { background: var(--teal); } .key.base { background: var(--ink); }
+    .quality { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+    .quality article { border-top: 2px solid var(--ink); padding-top: 14px; }
+    .quality p { margin: 0 0 12px; color: var(--muted); }
+    .quality strong { font: 21px var(--mono); color: var(--teal); }
+    .quality .sub { display: block; font: 11px var(--mono); color: var(--muted); margin: 4px 0 14px; }
+    .facts { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0 34px; }
+    .fact { padding: 11px 0; border-bottom: 1px solid var(--line); display: flex; gap: 12px; justify-content: space-between; }
+    .fact span { color: var(--muted); }
+    .fact b { font-weight: 550; text-align: right; }
+    .limits { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 30px; }
+    .limits p { margin: 6px 0 0; color: var(--muted); }
+    .limits strong { color: var(--orange); }
+    details { border-top: 1px solid var(--line); padding: 12px 0; }
+    details:last-child { border-bottom: 1px solid var(--line); }
+    summary { cursor: pointer; font-weight: 600; }
+    details p { color: var(--muted); }
+    code, pre { font-family: var(--mono); }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #e9eeed; padding: 16px; border-radius: 4px; font-size: 11px; line-height: 1.8; }
+    .hash { font: 11px var(--mono); overflow-wrap: anywhere; color: var(--muted); }
+    .sources { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+    .sources a { font-size: 13px; }
+    footer { color: var(--muted); border-top: 1px solid var(--ink); padding-top: 18px; font-size: 12px; }
+    @media (max-width: 900px) {
+      .layout { display: block; }
+      aside { position: static; padding-top: 18px; }
+      aside .side-label, aside .side-foot { display: none; }
+      aside nav { display: flex; overflow-x: auto; border-bottom: 1px solid var(--line); gap: 5px; }
+      aside nav a { white-space: nowrap; border-left: none; border-bottom: 2px solid transparent; padding: 8px 10px; }
+      aside nav a:hover, aside nav a:focus-visible { border-bottom-color: var(--teal); }
+      header { padding-top: 28px; }
+    }
+    @media (max-width: 680px) {
+      .shell { padding: 0 16px 64px; }
+      h1 { font-size: 23px; }
+      .mast { align-items: start; flex-direction: column; padding: 11px 0; gap: 2px; }
+      .mast span { text-align: left; }
+      .status { display: block; }
+      .status p { margin-top: 5px; }
+      .measure { grid-template-columns: 1fr; }
+      .measure > div, .measure > div + div { border-left: none; border-bottom: 1px solid var(--line); padding: 14px 0; }
+      .measure dd { font-size: 25px; }
+      .quality, .facts, .limits { grid-template-columns: 1fr; }
+      .axis { margin-left: 139px; margin-right: 60px; }
+      .rank-row { grid-template-columns: 128px minmax(32px,1fr) 60px; gap: 8px; min-height: 40px; }
+      .rank-label { white-space: normal; overflow: visible; }
+      .rank-label strong { font-size: 11px; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+      .tag { font-size: 8px; padding: 0 2px; }
+      .rank-value { font-size: 11px; }
+      .section-head { display: block; }
+      .section-head small { display: block; margin-top: 4px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="mast"><strong>PIXWORKER / INFERENCE LAB</strong><span>Apple M3 Max · FP32 · 2026-09-27 · 阶段性更新</span></div>
+    <div class="layout">
+      <aside aria-label="报告导航">
+        <div class="side-label">REPORT INDEX</div>
+        <nav>
+          <a href="#decision">判断边界</a><a href="#movie">成片耗时</a><a href="#ranking">帧级排名</a>
+          <a href="#quality">画质与设备</a><a href="#ncnn">ncnn 对比</a><a href="#method">实验条件</a><a href="#gaps">待完成</a><a href="#linux">Linux 4090</a><a href="#raw">原始证据</a>
+        </nav>
+        <div class="side-foot">同机、同源素材、同一 FP32 网络。帧级排名与是否值得迁移分开判断。</div>
+      </aside>
+      <main>
+        <header id="decision">
+          <p class="kicker">REAL-ESRGAN · 1280×720 → 2560×1440</p>
+          <h1>Apple Silicon 视频放大推理对照</h1>
+          <p class="subtitle">比较 ONNX 导入和纯 Rust 原生权重路径。核心指标是命令启动至成片落盘，而不是单帧推理速度。</p>
+          <div class="status" role="status"><strong>待判定 · 环境阻断</strong><p>旧短片边界缺帧已通过重选长片连续帧解决；最终生产提取入口与首轮实验输入的 120 张 PNG 逐张字节一致。原生 <code>tch/MPS</code> 的单组短片耗时比为 2.238；反向顺序复跑遇到 macOS 热紧急休眠，未形成有效配对。主片段五组交错配对、置信下界及全片复核均未开始，不建议迁移。</p></div>
+        </header>
+        <section id="movie">
+          <div class="section-head"><h2>命令到成片落盘</h2><small>长片第 7200–7319 帧 · 5.005 s · 单组新进程对照</small></div>
+          <dl class="measure">
+            <div><dt>最佳已测 ORT / 默认 CoreML+CPU</dt><dd>143.38 <em>s · 当前短片</em></dd></div>
+            <div><dt>原生 tch / MPS</dt><dd class="winner">64.06 <em>s · 当前短片</em></dd></div>
+            <div><dt>门槛</dt><dd class="threshold">&gt; 1.20 <em>同片耗时比</em></dd></div>
+          </dl>
+          <table class="pairs">
+            <caption>本轮新短片，外部进程墙钟秒；只配对一次，不计算置信下界</caption>
+            <thead><tr><th scope="col">组别 / 执行顺序</th><th scope="col">ORT 秒</th><th scope="col">tch 秒</th><th scope="col">比值</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">① ORT → tch</th><td>143.38</td><td>64.06</td><td>2.238×</td></tr>
+            </tbody>
+          </table>
+          <p class="callout">其余 ORT 成片选项：请求 CPU+GPU 150.41 s、请求 CPU+ANE 160.72 s、CPU-only 232.72 s，均输出完整 120 帧。默认 ORT 放大阶段为 124.422 s（内含会话加载 0.273 s），占成片总耗时 <strong>86.78%</strong>，高于计划的 1/6 停止线；会话计时为嵌套分项，不重复累加。默认 ORT 分项：提取 0.939 s、会话 0.273 s、预处理 0.169 s、推理 90.573 s、后处理 29.658 s、PNG I/O 3.743 s、编码 17.867 s；tch 对应推理含读回 14.188 s、后处理 28.527 s、PNG I/O 2.909 s、编码/发布 16.568 s。反向顺序的 tch 新进程在编码报告第 84 帧后遇 02:44:35 的 <strong>Dark Wake Thermal Emergency</strong> 睡眠（929 秒），命令超时且没有发布文件；不是可用于配对的耗时，也不能据此归咎于候选。样本离线无损视频转码，音频从 AAC 解码后以 FLAC 无损保存，样本转码成本不计入成片命令耗时。</p>
+        </section>
+        <section id="ranking">
+          <div class="section-head"><h2>推理库与后端帧级排名</h2><small>长片连续 121 张 PNG · 帧 0 预热 · 其余 120 帧逐帧串行</small></div>
+          <div class="score-title"><span>横轴：含加载/预处理、推理与输出读回的持续吞吐（帧/秒）</span><span>右侧：帧/秒</span></div>
+          <div class="axis" aria-hidden="true"><span>0</span><span>2</span><span>4</span><span>6</span><span>8.2</span></div>
+          <div class="rankings" role="group" aria-label="长片连续帧初筛吞吐排名">
+            <div class="rank-row native fastest"><div class="rank-label"><strong>tch / MPS</strong><span class="tag">原生</span></div><div class="track" style="--width:100%"></div><div class="rank-value">8.158</div></div>
+            <div class="rank-row baseline"><div class="rank-label"><strong>ORT / 默认 CoreML+CPU</strong><span class="tag">ONNX</span></div><div class="track" style="--width:16.0%"></div><div class="rank-value">1.302</div></div>
+            <div class="rank-row"><div class="rank-label"><strong>ORT / 请求 CPU+ANE</strong><span class="tag">ONNX</span></div><div class="track" style="--width:15.5%"></div><div class="rank-value">1.267</div></div>
+            <div class="rank-row"><div class="rank-label"><strong>ORT / 请求 CPU+GPU</strong><span class="tag">ONNX</span></div><div class="track" style="--width:14.9%"></div><div class="rank-value">1.213</div></div>
+            <div class="rank-row"><div class="rank-label"><strong>Burn / WGPU Metal</strong><span class="tag">导入</span></div><div class="track" style="--width:14.1%"></div><div class="rank-value">1.154</div></div>
+            <div class="rank-row"><div class="rank-label"><strong>ORT / CPU</strong><span class="tag">ONNX</span></div><div class="track" style="--width:7.1%"></div><div class="rank-value">0.583</div></div>
+            <div class="rank-row native"><div class="rank-label"><strong>tch / CPU</strong><span class="tag">原生</span></div><div class="track" style="--width:4.9%"></div><div class="rank-value">0.402</div></div>
+            <div class="rank-row"><div class="rank-label"><strong>Candle ONNX / Metal</strong><span class="tag">ONNX</span></div><div class="track" style="--width:4.2%"></div><div class="rank-value">0.341</div></div>
+            <div class="rank-row native"><div class="rank-label"><strong>Candle / Metal</strong><span class="tag">原生</span></div><div class="track" style="--width:3.9%"></div><div class="rank-value">0.320</div></div>
+            <div class="rank-row"><div class="rank-label"><strong>Tract / Metal</strong><span class="tag">ONNX</span></div><div class="track" style="--width:2.9%"></div><div class="rank-value">0.239</div></div>
+            <div class="rank-row"><div class="rank-label"><strong>Candle ONNX / CPU</strong><span class="tag">ONNX</span></div><div class="track" style="--width:2.6%"></div><div class="rank-value">0.212</div></div>
+            <div class="rank-row native"><div class="rank-label"><strong>Candle / CPU</strong><span class="tag">原生</span></div><div class="track" style="--width:2.6%"></div><div class="rank-value">0.210</div></div>
+          </div>
+          <div class="rank-foot"><span><i class="key native"></i>原生 Rust 网络 + safetensors</span><span><i class="key base"></i>现行 ORT 基准</span><span><i class="key"></i>ONNX 导入或转换</span></div>
+          <p class="callout">此表是帧级兼容性初筛排名，画质未认证的路径不属于计划意义上的“合格速度榜”。按每帧 <code>total_ms</code> 求和计算持续 fps，不是中位耗时的倒数。单列纯推理含读回：<code>tch/MPS</code> 9.017 fps（中位 110.374 ms），默认 ORT 1.318 fps（中位 754.298 ms）；逐帧原始日志同时记录预处理与推理。Tract CPU 只采集了 86/120 帧，曾出现单帧 40.646 s 的异常波动，未列入完整排名，不能称为库速度上限。其余行仅表明当前配置下测得较慢；CPU 线程预算不同，不能把它们解释为库本身的 CPU 上限。设备落点证据：默认 ORT 的 Resize/DepthToSpace 为 CPU，两个子图为 CoreML；请求 ANE/GPU 不等于实际整个图落在对应设备；Tract Metal 诊断无 CPU 计算节点但有上传/读回；Burn 只证实 Metal 适配器。Burn 属 ONNX 构建期导入，不属于原生权重路径。</p>
+        </section>
+        <section id="quality">
+          <div class="section-head"><h2>画质与设备归属</h2><small>ORT CPU 为数值参考 · 浮点张量与最终解码帧分开核查</small></div>
+          <div class="quality">
+            <article><h3>原生权重数值等价</h3><strong>144.493 dB</strong><span class="sub">tch/MPS · 中帧 FP32 4× 完整张量对 ORT CPU</span><p>53 个 FP32 张量、18 层卷积和 17 层 PReLU 逐键/形状校验。连续帧 0/60/120 的全量输出 PSNR 分别为 147.180/144.493/145.046 dB，峰值绝对误差最高 4.06e-6；原生 Candle 首帧也通过。其余后端的中/末帧浮点与最终 RGB 未完成逐个认证，不能用首帧兼容性证明全段画质合格。</p></article>
+            <article><h3>新短片最终解码 RGB</h3><strong>92.442 dB</strong><span class="sub">tch/MPS 对 ORT CPU · 全 120 帧平均 PSNR</span><p>最低单帧 89.947 dB，SSIM All 最低 0.999999；与默认 ORT 的 PSNR 为 56.451 dB、SSIM All 最低 0.997026，亦通过门槛。首/中/末帧 512×512 中心区域最低 PSNR 87.59 dB，SSIM 最低 0.999999；目视检查已定位短片边缘场景，但尚无主片段逐区域缺陷检查。</p></article>
+          </div>
+          <p class="callout">tch 显式请求 MPS、设 <code>PYTORCH_ENABLE_MPS_FALLBACK=0</code>，整张 4× 输出同步读回计时。主机接交流电、128 GiB 内存；未取得数值化芯片温度/统一文件缓存记录。<code>pmset -g log</code> 记录 01:45:06 闲置睡眠及 02:03:55、02:24:27、02:44:35 的 Dark Wake Thermal Emergency，后续 Tract CPU 与第二次短片均受环境事件影响；热紧急并非对任一库的因果判定。</p>
+          <details><summary>兼容性与晋级状态</summary><p>已观察支持模型：ORT CPU/CoreML、Tract CPU/Metal、Candle ONNX CPU/Metal、Burn WGPU Metal、原生 Candle CPU/Metal、原生 tch CPU/MPS；均至少完成过新素材首帧形状与数值核对或上一轮相同权重的首帧核对。没有已证实的“不支持模型”或“质量不合格”路径，但未逐段认证的路径不得当作画质合格。仅原生 tch/MPS 完成了新短片最终 120 帧的 RGB 门槛和成片验证，作为待进行三分钟配对的候选；其余当前测得较慢或尚无完整成片集成。<strong>全部候选均未做主片段成片验证。</strong></p></details>
+        </section>
+        <section id="ncnn">
+          <div class="section-head"><h2>ncnn/Vulkan 对 tch/MPS</h2><small>同一 Apple M3 Max · Real-ESRAnimeVideoV3 FP32 · 2026-09-27 短片初筛</small></div>
+          <p class="callout">ncnn 官方 20260526 C API 用维护中的 Rust <code>bindgen 0.73.2</code> 生成绑定；未找到维护活跃且能完整控制 Vulkan FP32 的 ncnn 专用 Rust crate。官方 <code>pnnx 20260526</code> 在隔离目录用 <code>inputshape=[1,3,720,1280] fp16=0</code> 将同一 ONNX 权重转为 .param/.bin；转换后的固定分辨率网络保留 18 Conv、17 PReLU、4× PixelShuffle 与最近邻残差，离线转换成本不计入计时。ncnn 的 MoltenVK 1.4.2 确实在 M3 Max 创建 Vulkan 设备；加载后的 FP16/INT8 packed/storage/arithmetic 均关闭，没有观察到整体 CPU 回退。</p>
+          <table class="pairs">
+            <caption>相同短片完整成片新进程串行配对 · 命令启动到成片落盘秒数</caption>
+            <thead><tr><th scope="col">组别 / 执行顺序</th><th scope="col">ncnn 秒</th><th scope="col">tch 秒</th><th scope="col">ncnn / tch</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">① ncnn → tch</th><td>91.60</td><td>73.24</td><td>1.251×</td></tr>
+              <tr><th scope="row">② tch → ncnn</th><td>92.24</td><td>72.19</td><td>1.278×</td></tr>
+            </tbody>
+          </table>
+          <p class="callout">这两组同片配对均是 <strong>tch 成片更快</strong>，ncnn/tch 耗时比中位为 1.264；tch 的命令总耗时少约 20.0%–21.7%。预热后连续 120 帧，含输入适配与完整同步输出读回的持续吞吐为 ncnn <strong>3.249 fps</strong>、tch <strong>6.577 fps</strong>。分项也保留：第一组 ncnn 同步推理/读回 34.820 s、后处理 29.881 s、PNG 3.062 s、归档 22.198 s；tch 分别为 15.304 / 31.510 / 3.068 / 20.912 s。接口内部推理计时的输入传输边界不同，不据此断言单个卷积 kernel 倍速。</p>
+          <p class="callout">短片源、两份输出均为 120 帧、24000/1001 fps、2560×1440、5.005 s，且有 PCM 44.1 kHz 双声道音频；同后端两次输出 SHA-256 各自完全一致。相对同机 ORT CPU，ncnn 的首帧 4× 完整 FP32 输出 PSNR 146.934 dB；全段最终解码 RGB 平均/最低 PSNR 92.859/90.904 dB、最低 SSIM All 0.999999，首/中/末 512×512 中心裁切最低 PSNR 89.606 dB。tch 全段对应 92.442/89.947 dB、最低 SSIM 0.999999。两者均通过预设 PSNR ≥45 dB 与 SSIM ≥0.995；测试时未记录热警告，但无数值温度记录。</p>
+          <p class="callout">ncnn 固定 720p 转换、Vulkan/MoltenVK 依赖及 Rust FFI 维护是部署成本；官方预编译 ncnn、pnnx 和 MoltenVK 都只放在本机私有临时目录，模型与视频未提交仓库。两组约 5 秒结果只能用于短片筛选，尚未做三分钟五组配对或全片；在当前同源短片下 ncnn 未显示足以晋级主片段的优势，原 Apple 迁移决策仍为“待判定”。</p>
+          <div class="sources"><a href="ncnn-tch-short-pairs.csv">交错配对 CSV</a><a href="ncnn-tch-short-stages.csv">四次成片分项 CSV</a><a href="ncnn-m3-20260927.json">环境模型哈希与结构化结果</a><a href="ncnn-vulkan-serial-v2.log">ncnn 最新逐帧原始记录</a><a href="ncnn-control-tch-mps-serial.log">tch 同日逐帧</a><a href="short-ncnn-vulkan-a.log">ncnn 第一组成片分项</a><a href="short-ncnn-vulkan-b.log">ncnn 第二组成片分项</a><a href="short-tch-mps-b.log">tch 第二组成片分项</a><a href="ncnn-cpu-psnr.log">ncnn 对 CPU 全帧 PSNR</a><a href="ncnn-cpu-ssim.log">ncnn 对 CPU 全帧 SSIM</a><a href="ncnn-cpu-roi-psnr.log">ncnn 首中末区域 PSNR</a></div>
+          <details><summary>ncnn 绑定与复跑命令</summary><pre># 下载并核对 ncnn-20260526-macos-vulkan.zip、pnnx-20260526-macos.zip 与 MoltenVK v1.4.2 的官方 SHA-256。
+# NCNN_SDK_DIR 指向解压后包含 ncnn.framework/glslang.framework/openmp.framework/MoltenVK/ 的同一目录。
+NCNN_SDK_DIR=/path/to/verified/sdk
+NCNN_VULKAN_DRIVER="$NCNN_SDK_DIR/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib"
+cp "$HOME/.cache/pixworker/models/upscale/realesr-animevideov3_fp32.onnx" "$NCNN_SDK_DIR/realesr-animevideov3_fp32.onnx"
+(cd "$NCNN_SDK_DIR" &amp;&amp; ./pnnx-20260526-macos/pnnx realesr-animevideov3_fp32.onnx 'inputshape=[1,3,720,1280]' fp16=0 device=cpu)
+NCNN_SDK_DIR="$NCNN_SDK_DIR" LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib cargo build --release --locked --manifest-path benches/native-ncnn/Cargo.toml
+NCNN_VULKAN_DRIVER="$NCNN_VULKAN_DRIVER" benches/native-ncnn/target/release/native-ncnn "$NCNN_SDK_DIR/realesr_animevideov3_fp32.ncnn.param" "$NCNN_SDK_DIR/realesr_animevideov3_fp32.ncnn.bin" tmp/upscale-bench-20260926-2345/frames tmp/upscale-bench-20260926-2345/ort-cpu-frame0.f32 vulkan
+NCNN_VULKAN_DRIVER="$NCNN_VULKAN_DRIVER" /usr/bin/time -l benches/native-ncnn/target/release/video tmp/upscale-bench-20260926-2345/short.mkv tmp/upscale-bench-20260926-2345/new-ncnn.mov "$NCNN_SDK_DIR/realesr_animevideov3_fp32.ncnn.param" "$NCNN_SDK_DIR/realesr_animevideov3_fp32.ncnn.bin" vulkan</pre><p>输入 ONNX SHA-256：<span class="hash">0a25cdd3cdfded5566850fe9d9dcb5e08335fbf2e7bb0da73adbb12b020c7ba2</span>；ncnn param/bin：<span class="hash">75f221da87f3458a658f0d583cfef7e40d328fa85196b1e91cef0d3da0bc38ca</span> / <span class="hash">60ff428b251a4ff2af3e71a4f5982a4e1cc49757ec4b381e207fc4b3bc7b6af3</span>。Vulkan 必须显式提供已校验驱动并确认设备；这条实验路径使用 <a href="../native-ncnn/Cargo.toml">独立 Cargo crate</a>，不接入生产默认后端。</p></details>
+        </section>
+        <section id="method">
+          <div class="section-head"><h2>冻结条件</h2><small>同机 · 同模型 · 同 RGB / NCHW FP32 语义</small></div>
+          <div class="facts">
+            <div class="fact"><span>机器 / 内存</span><b>Apple M3 Max / 128 GiB</b></div>
+            <div class="fact"><span>系统 / 构建</span><b>macOS 26.7 / rustc 1.98.1</b></div>
+            <div class="fact"><span>视频输入</span><b>1280×720 · 24000/1001 fps · 音频</b></div>
+            <div class="fact"><span>成片输出</span><b>2560×1440 · x265 无损 · PCM</b></div>
+            <div class="fact"><span>权重 / 精度</span><b>Real-ESRAnimeVideoV3 / FP32</b></div>
+            <div class="fact"><span>推理后处理</span><b>4× → Lanczos3 2× → PNG</b></div>
+            <div class="fact"><span>Rust 版本</span><b>ort rc.13 · tch 0.22 · Candle 0.11</b></div>
+            <div class="fact"><span>其他版本</span><b>Tract 0.23.8 · Burn 0.21.0 · FFmpeg 9.0.2</b></div>
+          </div>
+          <p class="callout">源长片 SHA-256 <span class="hash">715fe16d58e67f98e0a91fc31029e9db3376787d158afc9da0e3c45895ffc9b6</span>。短片源范围 7200–7319（120 帧），SHA-256 <span class="hash">d5fc5d320f4861fc8ac52892991484779347bc8ba7ee160d9b6d1bd470bd3623</span>；三分钟连续主片段范围 7200–11515（4316 帧，180.013 s），SHA-256 <span class="hash">c037ea073fd37656635bde7a2e789ecfbe1f3584333ea804e4ad43abd8a9cd9e</span>。短片与主片段同源，无后验选片；目视抽查片段含平稳画面、人物运动及细节。模型只读本地缓存，未下载或上传；Real-ESRGAN 权重来源标注 BSD-3-Clause，实际部署须附许可证。FP16 未入榜。此轮基于 git <code>5e15965a</code> 的未提交工作树；使用交流电，复核时余约 977 GiB 空间，芯片温度和缓存无完整记录。</p>
+        </section>
+        <section id="gaps">
+          <div class="section-head"><h2>为什么仍不能作迁移决定</h2><small>计划以主片段的保守 T_base / T_candidate &gt; 1.20 为准</small></div>
+          <div class="limits">
+            <div><strong>01 / 切片已重选</strong><p>旧短片末端有时间戳缺口，默认 FFmpeg 为维持 CFR 补 1 帧；按计划重选原片连续范围，保留原共享提取规则。新短片由最终生产入口重提取为 120 帧，与预先提取的同源基准 PNG 逐张字节一致；首组成片两条路径均为 120 帧。旧片的 123 帧成绩仅保留历史记录；有缺口/VFR 输入的精确音画同步不在本实验验收范围。</p></div>
+            <div><strong>02 / 样本已冻结</strong><p>约三分钟主片段已从指定 24 分钟源片冻结并核验规格、哈希与连续 4316 帧，但尚未执行完整主片段成片对照。静态、运动、纹理的视觉抽样不是逐帧质量证书。</p></div>
+            <div><strong>03 / 统计未通过</strong><p>新短片只有 1 组 ORT → tch 有效对照；反向顺序在系统热紧急睡眠中断，不得作第二组。计划的单侧至少 95% 中位数置信下界需主片段至少 5 组独立交错配对；5 组时下界是最小比值。目前不能宣称统计过门槛，全部非 ORT 候选均为“未做主片段成片验证”。</p></div>
+            <div><strong>04 / 环境阻断与全片</strong><p>本机出现多次热紧急休眠，按计划不能在环境失控时继续主片段交错配对或约 24 分钟全片复核；Tract CPU 只测到 86/120 帧，不能填入完整排名。Burn 构建期导入、Candle 算子展开、libtorch 2.9.0（本机目录约 492 MiB）部署均产生维护成本；构建/转换时间未计量。迁移实现和其他平台验证另立任务。</p></div>
+          </div>
+        </section>
+        <section id="linux">
+          <div class="section-head"><h2>Linux RTX 4090 独立复核</h2><small>同一 FP32 权重与 120 帧短片 · 共享显卡 · 不参与 Apple 迁移判定</small></div>
+          <p class="callout">在 <code>jamesjiang-4090</code> 上另行对照：驱动 595.84，起始显存占用 11285/24564 MiB（现有 Ollama 与 Comfy 进程保持运行）。ORT rc.13 先尝试 TensorRT，因缺 <code>libnvinfer.so.10</code> 改用 CUDA；单帧 profile 的 <strong>38/38 节点均在 CUDA</strong>。原生 <code>tch 0.24</code> 只读现有 PyTorch 2.11 CUDA 12.8 库，使用已有卷积原语显式关闭 TF32；ORT 所需 CUDA 13.0 用户态库仅安装在测试临时目录。两种方法的模型、输入、fps 与无损 x265/音频处理相同，但后处理代码耗时不同。</p>
+          <table class="pairs">
+            <caption>Linux 短片独立新进程交错对照；秒为命令启动到输出落盘</caption>
+            <thead><tr><th scope="col">组别 / 执行顺序</th><th scope="col">ORT CUDA 秒</th><th scope="col">tch CUDA 秒</th><th scope="col">比值</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">① ORT → tch</th><td>98.68</td><td>69.38</td><td>1.422×</td></tr>
+              <tr><th scope="row">② tch → ORT</th><td>96.04</td><td>69.55</td><td>1.381×</td></tr>
+            </tbody>
+          </table>
+          <p class="callout">两组短片比值中位 <strong>1.402</strong>，不是主片段的 95% 置信下界。预热后同一连续 120 帧：ORT CUDA 的报告 API 吞吐 <strong>7.505 fps</strong>、含适配持续吞吐 <strong>7.119 fps</strong>；tch CUDA 分别为 <strong>7.603</strong> 与 <strong>6.717 fps</strong>。前一对 API 数字不具相同计时边界：ORT 的 <code>Session::run</code> 包含输入上卡，tch 在进入 <code>infer</code> 前就完成了输入上卡；两者都计入同步输出读回。仅含适配持续吞吐同口径，不能据 7.505/7.603 推断内核速度。总成片差主要在 CPU 后处理和 PNG I/O，不能解释成 CUDA 推理库有压倒性优势。ORT CUDA 第一组后处理 63.282 s、<code>Session::run</code> 16.652 s；tch 后处理 38.520 s、<code>infer</code> 15.353 s。</p>
+          <p class="callout">两份 Linux 成片均为 120 帧、2560×1440、24000/1001 fps 且音频完整。以<strong>同机</strong> ORT CPU 成片为参考，tch 全段 RGB 平均/最低 PSNR 为 94.152/92.203 dB、最低 SSIM All 为 0.999999；首/中/末中心裁切最低 PSNR 为 92.463 dB。ORT CUDA 对 CPU 的平均/最低 PSNR 为 66.411/65.003 dB、最低 SSIM 0.999677，均超过预设 PSNR 45 dB / SSIM 0.995。跨 Mac/Linux 的 CPU 原始浮点首帧一致到 149.006 dB，但最终视频 SSIM 只有 0.991129，跨机编码/后处理差异不用于 Linux 候选的质量判定。</p>
+          <p class="callout">GPU 采样峰值总占用：ORT 13766 MiB（最低剩余 10318 MiB、最高 59°C）；tch 12570 MiB（最低剩余 11514 MiB、最高 58°C），包含其他常驻进程，不是独占显存峰值。仅做两组约 5 秒短片与 120 帧连续测试，未做三分钟五组或全片验证；其他进程并存限制了计时解释。本轮只新增了经事先模拟为 0 升级、1 新装的 <code>libssl-dev</code> 系统包；没有更新现有 venv、容器或其他系统包。</p>
+          <div class="sources"><a href="linux-4090-20260927/summary.json">Linux 结构化结果</a><a href="linux-4090-20260927/short-runs.csv">两组耗时 CSV</a><a href="linux-4090-20260927/output/ort-cuda-serial.log">ORT 原始逐帧</a><a href="linux-4090-20260927/output/tch-cuda-serial.log">tch 原始逐帧</a><a href="linux-4090-20260927/output/psnr-linuxcpu-tch.log">同机 PSNR 每帧</a><a href="linux-4090-20260927/output/ssim-linuxcpu-tch.log">同机 SSIM 每帧</a><a href="linux-4090-20260927/output/ort-cuda-profile_2026-09-26_22-24-29_337.json">CUDA 节点 profile</a><a href="linux-4090-20260927/evidence.tar.gz">完整非媒体原始证据归档</a></div>
+        </section>
+        <section id="raw">
+          <div class="section-head"><h2>原始数据与复跑</h2><small>文件均为本机路径 · 模型与视频不在仓库</small></div>
+          <div class="sources"><a href="continuous-ranking.csv">完整 120 帧排名 CSV</a><a href="long-tract-cpu-serial.log">Tract CPU 未完成 86 帧日志</a><a href="invalid-runs.csv">无效成片运行 CSV</a><a href="summarize.rb">排名 CSV 生成脚本</a></div>
+          <div class="sources"><a href="long-source-short-runs.csv">本轮完整短片分项 CSV</a><a href="long-tch-mps-serial.log">tch MPS 逐帧</a><a href="long-ort-default-serial.log">ORT 默认逐帧</a><a href="long-burn-metal-serial.log">Burn Metal 逐帧</a><a href="long-native-candle-metal-serial.log">原生 Candle Metal 逐帧</a><a href="long-tract-metal-serial.log">Tract Metal 逐帧</a><a href="long-ort-cpu-serial.log">ORT CPU 逐帧</a><a href="long-ort-gpu-serial.log">ORT GPU 逐帧</a><a href="long-ort-ane-serial.log">ORT ANE 逐帧</a><a href="long-tch-cpu-serial.log">tch CPU 逐帧</a><a href="long-candle-onnx-cpu-serial.log">Candle ONNX CPU 逐帧</a><a href="long-candle-onnx-metal-serial.log">Candle ONNX Metal 逐帧</a><a href="long-native-candle-cpu-serial.log">原生 Candle CPU 逐帧</a><a href="../../tmp/upscale-bench-20260926-2345/psnr-cpu-rgb.log">本轮 PSNR 原始值（本机）</a><a href="../../tmp/upscale-bench-20260926-2345/ssim-cpu-rgb.log">本轮 SSIM 原始值（本机）</a><a href="short-pairs.csv">历史两组成片</a><a href="results.json">历史 24 帧 ONNX JSON</a><a href="RESULTS.md">历史实验记录</a></div>
+          <details><summary>完整逐帧原始 CSV</summary><div class="sources"><a href="long-tch-mps-serial.csv">tch MPS</a><a href="long-ort-default-serial.csv">ORT 默认</a><a href="long-ort-ane-serial.csv">ORT ANE</a><a href="long-ort-gpu-serial.csv">ORT GPU</a><a href="long-burn-metal-serial.csv">Burn Metal</a><a href="long-ort-cpu-serial.csv">ORT CPU</a><a href="long-tch-cpu-serial.csv">tch CPU</a><a href="long-candle-onnx-metal-serial.csv">Candle ONNX Metal</a><a href="long-native-candle-metal-serial.csv">原生 Candle Metal</a><a href="long-tract-metal-serial.csv">Tract Metal</a><a href="long-candle-onnx-cpu-serial.csv">Candle ONNX CPU</a><a href="long-native-candle-cpu-serial.csv">原生 Candle CPU</a></div></details>
+          <details><summary>模型、锁文件与帧 SHA-256</summary><p>ONNX：<span class="hash">0a25cdd3cdfded5566850fe9d9dcb5e08335fbf2e7bb0da73adbb12b020c7ba2</span><br>原生 safetensors：<span class="hash">fc71c784b8fbff34fcce550e7823bfe8e20cf805c5cce5c7c18cde0f4218a257</span><br>根 Cargo.lock：<span class="hash">1a46f5311910fb24024b7e6b7602e732c079b5b614ea6ad3441aef343a01d381</span><br>native-tch Cargo.lock：<span class="hash">2bca42c393a9f02da52d3c0015fbfd907757ad8d94ec1ff22580de535bc1a8b4</span><br>native-candle Cargo.lock：<span class="hash">5ae7fd4cbe93d1bdbde02a356415214801b277bb5fc90068093c5ed9304ff312</span><br>Tract Cargo.lock：<span class="hash">a2851405ad919a7fb02a0116f795e41991653e32061319d7f60dfbd6f9886579</span><br>Candle ONNX Cargo.lock：<span class="hash">39c582a0759f2ef5b40fd8e87ee4e6d8ecde22345a7c85143229d18f4e284077</span><br>Burn Cargo.lock：<span class="hash">9378d44bf3fe0b464c5f9eadd155f92e70b549107362dbd400090ef9186f9b64</span><br>新首帧：<span class="hash">34448468a9644295bb4deacc5fbe5044b1347f040d075d2110ae37d229d54116</span><br>ORT CPU 首帧 FP32：<span class="hash">6e9dedabafb887145f8a52b0f00f1246e02478a029db859cc143bce37f9d2194</span></p></details>
+          <details><summary>输入冻结与复跑命令</summary><pre>cargo build --release --locked
+ffmpeg -i 'tmp/リトルバスターズ! 01.mkv' -filter_complex '[0:v:0]trim=start_frame=7200:end_frame=7320,setpts=N*1001/(24000*TB)[v];[0:a:0]atrim=start=300.3:duration=5.005,asetpts=PTS-STARTPTS[a]' -map '[v]' -map '[a]' -r 24000/1001 -c:v libx264 -preset ultrafast -qp 0 -pix_fmt yuv420p -c:a flac -n tmp/upscale-bench-20260926-2345/short.mkv
+ffmpeg -i 'tmp/リトルバスターズ! 01.mkv' -filter_complex '[0:v:0]trim=start_frame=7200:end_frame=11516,setpts=N*1001/(24000*TB)[v];[0:a:0]atrim=start=300.3:duration=180.013167,asetpts=PTS-STARTPTS[a]' -map '[v]' -map '[a]' -r 24000/1001 -c:v libx264 -preset ultrafast -qp 0 -pix_fmt yuv420p -c:a flac -n tmp/upscale-bench-20260926-2345/main.mkv
+PIXWORKER_TIMING=1 /usr/bin/time -l target/release/pixworker enhance --input tmp/upscale-bench-20260926-2345/short.mkv --output tmp/upscale-bench-20260926-2345/another-ort.mov --upscale 2.0 --upscale-model realesr-animevideov3 --vfi 1.0 --silent
+LIBTORCH=/Users/universonic/Workspace/pytorch/torch cargo build --release --locked --offline --bins --manifest-path benches/native-tch/Cargo.toml
+/usr/bin/time -l /usr/bin/env LIBTORCH=/Users/universonic/Workspace/pytorch/torch DYLD_LIBRARY_PATH=/Users/universonic/Workspace/pytorch/torch/lib OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTORCH_ENABLE_MPS_FALLBACK=0 benches/native-tch/target/release/video tmp/upscale-bench-20260926-2345/short.mkv tmp/upscale-bench-20260926-2345/another-tch.mov "$HOME/.cache/pixworker/models/upscale/realesr-animevideov3_fp32.safetensors"</pre><p>ORT GPU/ANE 成片仅在显式设置 <code>PIXWORKER_COREML_UNITS=gpu</code> 或 <code>ane</code> 时运行；默认行为不变。tch 拒绝覆盖输出文件；模型转换和构建耗时单列，不混入推理。报告不嵌入模型或视频画面。</p></details>
+          <details><summary>连续帧候选复跑命令</summary><pre>FRAME_DIR=tmp/upscale-bench-20260926-2345/frames
+ONNX="$HOME/.cache/pixworker/models/upscale/realesr-animevideov3_fp32.onnx"
+SAFE="$HOME/.cache/pixworker/models/upscale/realesr-animevideov3_fp32.safetensors"
+REF=tmp/upscale-bench-20260926-2345/ort-cpu-frame0.f32
+target/release/examples/upscale_profile "$FRAME_DIR" tmp/upscale-bench-20260926-2345/no-profile default
+benches/upscale-inference/target/release/upscale-inference "$ONNX" "$FRAME_DIR" metal
+benches/candle-inference/target/release/candle-inference "$ONNX" "$FRAME_DIR" metal
+benches/native-candle/target/release/native-candle metal "$SAFE" "$FRAME_DIR" "$REF"
+LIBTORCH=/Users/universonic/Workspace/pytorch/torch DYLD_LIBRARY_PATH=/Users/universonic/Workspace/pytorch/torch/lib OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTORCH_ENABLE_MPS_FALLBACK=0 benches/native-tch/target/release/native-tch "$SAFE" "$FRAME_DIR" "$REF" mps
+benches/burn-inference/target/release/burn-inference "$FRAME_DIR"</pre><p>以 <code>cpu</code>、<code>ane</code>、<code>gpu</code> 等各原型明确支持的后端分别串行执行，前一进程退出后才启动下一个。Burn 的 .bpk 由 ONNX 构建期导入，不能与直接加载 safetensors 的 Candle/tch 混称为原生路径。已测较慢不等于不支持模型；没有合格的主片段测试不等于迁移达标。</p></details>
+        </section>
+        <footer>Apple Silicon 实验依据仓库内性能对比计划；ncnn 是后续新增的同机短片筛选，Linux 4090 是独立探索，均不能替代原计划的主片段和全片验收。未完成验证前，不给出生产后端迁移建议。</footer>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

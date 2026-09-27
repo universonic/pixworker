@@ -1,0 +1,6 @@
+backend,order,wall_s,extract_s,session_s,upscale_s,preprocess_s,infer_s,postprocess_s,png_io_s,archive_s,peak_rss_bytes,video_frames,notes
+ort-default,1,143.38,0.938591,0.273407,124.421785,0.168533,90.573128,29.657807,3.742736,17.866617,10233872384,120,CoreML+CPU mixed
+native-tch-mps,2,64.06,0.922911,0.041072,,0.536723,14.187608,28.527305,2.909340,16.568061,1773862912,120,upscale stages recorded separately; total main-to-file 63.744434 s
+ort-cpu,3,232.72,0.938187,0.038014,215.327551,0.167318,182.508412,28.851712,3.759102,16.369434,2090893312,120,CPU-only default thread budget
+ort-cpu-gpu,4,150.41,,0.072756,132.026997,0.175068,96.421257,31.405674,3.944388,17.316130,10232954880,120,CoreML CPU+GPU requested; actual node placement not separately profiled
+ort-cpu-ane,5,160.72,1.007193,0.268287,143.519269,0.175171,104.189268,34.662820,4.218243,16.058030,3025813504,120,CoreML CPU+ANE requested; physical ANE placement not proven

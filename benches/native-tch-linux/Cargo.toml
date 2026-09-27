@@ -1,0 +1,24 @@
+[package]
+name = "native-tch-linux"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "native_tch"
+path = "../native-tch/src/lib.rs"
+
+[[bin]]
+name = "native-tch"
+path = "../native-tch/src/main.rs"
+
+[[bin]]
+name = "video"
+path = "../native-tch/src/bin/video.rs"
+
+[dependencies]
+anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+pixworker = { path = "../.." }
+safetensors = "=0.6.2"
+tch = "=0.24.0"
+tempfile = "=3.23.0"

@@ -1,6 +1,8 @@
 .DS_Store
 .kilo/
 /target
+/benches/*/target/
+/benches/*/.cargo/
 /tmp
 /artifacts
 /logs

@@ -1,0 +1,121 @@
+Input video: /tmp/pixworker-4090-GWfL65rY/input/short.mkv
+Extracting to directory '/tmp/pixworker-4090-GWfL65rY/tmp/.tmpWXPVFA/extracted' with ffmpeg...
+ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers
+  built with gcc 13 (Ubuntu 13.2.0-23ubuntu3)
+  configuration: --prefix=/usr --extra-version=3ubuntu5 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared
+  libavutil      58. 29.100 / 58. 29.100
+  libavcodec     60. 31.102 / 60. 31.102
+  libavformat    60. 16.100 / 60. 16.100
+  libavdevice    60.  3.100 / 60.  3.100
+  libavfilter     9. 12.100 /  9. 12.100
+  libswscale      7.  5.100 /  7.  5.100
+  libswresample   4. 12.100 /  4. 12.100
+  libpostproc    57.  3.100 / 57.  3.100
+Input #0, matroska,webm, from '/tmp/pixworker-4090-GWfL65rY/input/short.mkv':
+  Metadata:
+    ENCODER         : Lavf63.1.102
+  Duration: 00:00:05.01, start: 0.000000, bitrate: 21675 kb/s
+  Stream #0:0: Video: h264 (High 4:4:4 Predictive), yuv420p(tv, progressive), 1280x720 [SAR 1:1 DAR 16:9], 23.98 fps, 23.98 tbr, 1k tbn
+    Metadata:
+      ENCODER         : Lavc63.1.102 libx264
+      DURATION        : 00:00:05.005000000
+  Stream #0:1: Audio: flac, 48000 Hz, stereo, s32 (24 bit)
+    Metadata:
+      ENCODER         : Lavc63.1.102 flac
+      DURATION        : 00:00:05.006000000
+Stream mapping:
+  Stream #0:0 -> #0:0 (h264 (native) -> png (native))
+  Stream #0:1 -> #1:0 (flac (native) -> pcm_s16le (native))
+Press [q] to stop, [?] for help
+Output #1, wav, to '/tmp/pixworker-4090-GWfL65rY/tmp/.tmpWXPVFA/extracted/audio/0.wav':
+  Metadata:
+    ISFT            : Lavf60.16.100
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 44100 Hz, stereo, s16, 1411 kb/s
+    Metadata:
+      DURATION        : 00:00:05.006000000
+      encoder         : Lavc60.31.102 pcm_s16le
+Output #0, image2, to '/tmp/pixworker-4090-GWfL65rY/tmp/.tmpWXPVFA/extracted/frames/%d.png':
+  Metadata:
+    encoder         : Lavf60.16.100
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown, progressive), 1280x720 [SAR 1:1 DAR 16:9], q=2-31, 200 kb/s, 23.98 fps, 23.98 tbn
+    Metadata:
+      DURATION        : 00:00:05.005000000
+      encoder         : Lavc60.31.102 png
+frame=    0 fps=0.0 q=0.0 size=       0kB time=00:00:00.48 bitrate=   0.0kbits/s speed=33.6x    [out#0/image2 @ 0x5a4d4ede5d00] video:55554kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: unknown
+[out#1/wav @ 0x5a4d4fc9aec0] video:0kB audio:862kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: 0.008836%
+frame=  120 fps=0.0 q=-0.0 Lsize=N/A time=00:00:05.00 bitrate=N/A speed=21.5x    
+Extract 120 frames in total.
+extract: 292.325766ms
+vfi: 4.679µs
+upscale session: 244.670247ms
+upscale preprocessing: 2.526556094s, Session::run: 15.613708325s, postprocessing: 62.097292482s, PNG I/O: 4.947539207s
+upscale: 85.447894074s
+Total 120 frames.
+Archiving to file '/tmp/pixworker-4090-GWfL65rY/output/ort-cuda-short2.mov' with ffmpeg...
+ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers
+  built with gcc 13 (Ubuntu 13.2.0-23ubuntu3)
+  configuration: --prefix=/usr --extra-version=3ubuntu5 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared
+  libavutil      58. 29.100 / 58. 29.100
+  libavcodec     60. 31.102 / 60. 31.102
+  libavformat    60. 16.100 / 60. 16.100
+  libavdevice    60.  3.100 / 60.  3.100
+  libavfilter     9. 12.100 /  9. 12.100
+  libswscale      7.  5.100 /  7.  5.100
+  libswresample   4. 12.100 /  4. 12.100
+  libpostproc    57.  3.100 / 57.  3.100
+Input #0, image2, from '/tmp/pixworker-4090-GWfL65rY/tmp/.tmpWXPVFA/frames/%d.png':
+  Duration: 00:00:05.01, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown), 2560x1440, 23.98 fps, 23.98 tbr, 23.98 tbn
+[aist#1:0/pcm_s16le @ 0x60326f62c200] Guessed Channel Layout: stereo
+Input #1, wav, from '/tmp/pixworker-4090-GWfL65rY/tmp/.tmpWXPVFA/audio/0.wav':
+  Metadata:
+    encoder         : Lavf60.16.100
+  Duration: 00:00:05.00, bitrate: 1411 kb/s
+  Stream #1:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 44100 Hz, 2 channels, s16, 1411 kb/s
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> hevc (libx265))
+  Stream #1:0 -> #0:1 (pcm_s16le (native) -> pcm_s16le (native))
+Press [q] to stop, [?] for help
+[in#0/image2 @ 0x60326f625ec0] Thread message queue blocking; consider raising the thread_queue_size option (current value: 8)
+x265 [info]: HEVC encoder version 3.5+1-f0c1022b6
+x265 [info]: build info [Linux][GCC 13.2.0][64 bit] 8bit+10bit+12bit
+x265 [info]: using cpu capabilities: MMX2 SSE2Fast LZCNT SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+x265 [warning]: halving the quality when psy-rd is enabled for 444 input. Setting cbQpOffset = 6 and crQpOffset = 6
+x265 [info]: Main 4:4:4 profile, Level-8.5 (Main tier)
+x265 [info]: Thread pool created using 32 threads
+x265 [info]: Slices                              : 1
+x265 [info]: frame threads / pool features       : 5 / wpp(23 rows)
+x265 [info]: Coding QT: max CU size, min CU size : 64 / 8
+x265 [info]: Residual QT: max TU size, max depth : 32 / 1 inter / 1 intra
+x265 [info]: ME / range / subpel / merge         : hex / 57 / 2 / 3
+x265 [info]: Keyframe min / max / scenecut / bias  : 2 / 24 / 40 / 5.00 
+x265 [info]: Cb/Cr QP Offset                     : 6 / 6
+x265 [info]: Lookahead / bframes / badapt        : 20 / 4 / 2
+x265 [info]: b-pyramid / weightp / weightb       : 1 / 1 / 0
+x265 [info]: References / ref-limit  cu / depth  : 3 / off / on
+x265 [info]: Rate Control                        : Lossless
+x265 [info]: tools: rd=3 psy-rd=2.00 early-skip rskip mode=1 signhide tmvp
+x265 [info]: tools: b-intra strong-intra-smoothing lslices=8 deblock sao
+Output #0, mov, to '/tmp/pixworker-4090-GWfL65rY/output/ort-cuda-short2.mov':
+  Metadata:
+    encoder         : Lavf60.16.100
+  Stream #0:0: Video: hevc (hvc1 / 0x31637668), yuv444p(tv, progressive), 2560x1440, q=2-31, 23.98 fps, 24k tbn
+    Metadata:
+      encoder         : Lavc60.31.102 libx265
+    Side data:
+      cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+  Stream #0:1: Audio: pcm_s16le (sowt / 0x74776F73), 44100 Hz, stereo, s16, 1411 kb/s
+    Metadata:
+      encoder         : Lavc60.31.102 pcm_s16le
+frame=    0 fps=0.0 q=0.0 size=       0kB time=00:00:00.00 bitrate=N/A speed=   0x    frame=    2 fps=0.0 q=4.0 size=     512kB time=00:00:01.32 bitrate=3169.2kbits/s speed=2.06x    frame=   12 fps= 10 q=4.0 size=    5888kB time=00:00:01.74 bitrate=27697.3kbits/s speed= 1.5x    frame=   21 fps= 13 q=4.0 size=   10240kB time=00:00:02.11 bitrate=39699.8kbits/s speed=1.26x    frame=   30 fps= 14 q=4.0 size=   15616kB time=00:00:02.48 bitrate=51489.1kbits/s speed=1.12x    frame=   38 fps= 14 q=4.0 size=   21760kB time=00:00:02.83 bitrate=62925.8kbits/s speed=1.02x    frame=   44 fps= 13 q=4.0 size=   27136kB time=00:00:03.08 bitrate=71981.9kbits/s speed=0.938x    frame=   50 fps= 13 q=4.0 size=   32512kB time=00:00:03.32 bitrate=80211.5kbits/s speed=0.871x    frame=   54 fps= 12 q=4.0 size=   36608kB time=00:00:03.50 bitrate=85531.9kbits/s speed=0.808x    frame=   62 fps= 13 q=4.0 size=   46080kB time=00:00:03.83 bitrate=98527.5kbits/s speed=0.786x    frame=   67 fps= 12 q=4.0 size=   51712kB time=00:00:04.04 bitrate=104850.6kbits/s speed=0.746x    frame=   72 fps= 12 q=4.0 size=   57344kB time=00:00:04.24 bitrate=110551.8kbits/s speed=0.715x    frame=   89 fps= 11 q=4.0 size=   76800kB time=00:00:04.36 bitrate=144122.6kbits/s speed=0.56x    [out#0/mov @ 0x60326f64c5c0] video:108647kB audio:862kB subtitle:0kB other streams:0kB global headers:2kB muxing overhead: 0.005926%
+frame=  120 fps= 12 q=4.0 Lsize=  109515kB time=00:00:04.99 bitrate=179707.0kbits/s speed=0.497x    
+x265 [info]: frame I:      6, Avg QP:4.00  kb/s: 189438.08
+x265 [info]: frame P:     26, Avg QP:4.00  kb/s: 204693.88
+x265 [info]: frame B:     88, Avg QP:4.00  kb/s: 169099.09
+x265 [info]: Weighted P-Frames: Y:0.0% UV:0.0%
+x265 [info]: consecutive B-frames: 15.6% 3.1% 3.1% 46.9% 31.2% 
+x265 [info]: lossless compression ratio 3.98::1
+
+encoded 120 frames in 9.95s (12.06 fps), 177828.25 kb/s, Avg QP:4.00
+archive: 10.148011014s
+wall_s=96.04 max_rss_kb=1870532
