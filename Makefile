@@ -1,182 +1,80 @@
-## Multi-platform cross-build Makefile for pixworker
-# Builds release binaries for macOS/Linux/Windows (x86_64 + arm64)
-# Usage:
-#   make dist           # build all configured targets and collect artifacts in ./dist
-#   make add-targets    # add required rustup targets
-#   make build-targets  # build all targets
-#   make clean          # cargo clean
-
+# Native release builds only. Set LIBTORCH to the matching libtorch 2.11.0 directory.
 SHELL := /bin/bash
 
-# Detect host OS to determine available targets
 UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
 
-# Target triples to build. Windows MSVC targets require Windows host due to ring/reqwest dependencies.
-ifeq ($(UNAME_S),Windows_NT)
-    # Building on Windows - include all targets
-    TARGETS := \
-        aarch64-apple-darwin \
-        x86_64-unknown-linux-gnu \
-        aarch64-unknown-linux-gnu \
-        x86_64-pc-windows-msvc \
-        aarch64-pc-windows-msvc
-else ifeq ($(UNAME_S),Darwin)
-    # Building on macOS - exclude Windows targets (ring crate requires native MSVC)
-    TARGETS := \
-        aarch64-apple-darwin \
-        x86_64-unknown-linux-gnu \
-        aarch64-unknown-linux-gnu
-else
-    # Building on Linux - exclude Windows targets (ring crate requires native MSVC)
-    TARGETS := \
-        aarch64-apple-darwin \
-        x86_64-unknown-linux-gnu \
-        aarch64-unknown-linux-gnu
+ifeq ($(UNAME_S),Darwin)
+ifeq ($(UNAME_M),arm64)
+HOST_TRIPLE := aarch64-apple-darwin
+endif
+else ifeq ($(UNAME_S),Linux)
+ifeq ($(UNAME_M),x86_64)
+HOST_TRIPLE := x86_64-unknown-linux-gnu
+endif
+else ifneq ($(filter MINGW% MSYS% CYGWIN% Windows_NT,$(UNAME_S)),)
+ifeq ($(UNAME_M),x86_64)
+HOST_TRIPLE := x86_64-pc-windows-msvc
+endif
 endif
 
-BIN_NAME := pixworker
-
-# Individual target phony declarations
-.PHONY: all dist add-targets build-targets collect clean help
-.PHONY: macos-arm64 linux-x64 linux-arm64 windows-x64 windows-arm64
+.PHONY: all help build-targets collect dist macos-arm64 linux-x64 windows-x64
 
 all: build-targets
 
 help:
-	@echo "pixworker cross-build Makefile"
-	@echo ""
-	@echo "Detected host: $(UNAME_S)"
-	@echo "Available targets: $(TARGETS)"
-	@echo ""
-	@echo "Main targets:"
-	@echo "  make / make all     - Build all platform targets (default)"
-	@echo "  make dist           - Build all targets and collect binaries into ./dist"
-	@echo "  make add-targets    - Add rustup targets (may require network)"
-	@echo "  make build-targets  - Build all configured targets (assumes targets installed)"
-	@echo "  make collect        - Collect built binaries into ./dist"
-	@echo "  make clean          - cargo clean"
-	@echo ""
-	@echo "Individual platform targets:"
-	@echo "  make macos-arm64    - Build for aarch64-apple-darwin"
-	@echo "  make linux-x64      - Build for x86_64-unknown-linux-gnu"
-	@echo "  make linux-arm64    - Build for aarch64-unknown-linux-gnu"
-	@echo "  make windows-x64    - Build for x86_64-pc-windows-msvc (Windows host only)"
-	@echo "  make windows-arm64  - Build for aarch64-pc-windows-msvc (Windows host only)"
-	@echo ""
-	@echo "Note: Windows targets require building on Windows due to ring/reqwest dependencies"
-	@echo ""
+	@printf '%s\n' 'Native host: $(UNAME_S) $(UNAME_M)' 'Target: $(HOST_TRIPLE)' \
+		'make              - build the native release binary' \
+		'make dist         - build and package the binary with libtorch libraries' \
+		'make collect      - package an existing native release build' \
+		'make macos-arm64  - build/package on macOS Apple Silicon' \
+		'make linux-x64    - build/package on Linux x86_64' \
+		'make windows-x64  - build/package on Windows x86_64 (MSYS2 Bash + MSVC)'
 
-## Add rustup targets (best-effort; some targets may already be installed)
-add-targets:
-	@echo "==> Ensuring rustup targets are installed"
-	@for t in $(TARGETS); do \
-		printf "Adding $$t... "; \
-		rustup target add $$t >/dev/null 2>&1 || true; \
-		echo "done"; \
-	done
+build-targets:
+	@set -eu; \
+	if [ -z '$(HOST_TRIPLE)' ] || { [ -n '$(EXPECTED_TRIPLE)' ] && [ '$(HOST_TRIPLE)' != '$(EXPECTED_TRIPLE)' ]; }; then \
+		printf '%s\n' 'Unsupported host or non-native target: $(UNAME_S) $(UNAME_M)' >&2; exit 1; \
+	fi; \
+	if [ -z "$${LIBTORCH:-}" ] || [ ! -d "$$LIBTORCH/lib" ]; then \
+		printf '%s\n' 'Set LIBTORCH to the matching libtorch 2.11.0 directory (with lib/).' >&2; exit 1; \
+	fi; \
+	if [ '$(HOST_TRIPLE)' = x86_64-pc-windows-msvc ] && [ ! -d "$${FFMPEG_DIR:-}" ]; then \
+		printf '%s\n' 'Set FFMPEG_DIR to the FFmpeg 9 shared development package.' >&2; exit 1; \
+	fi; \
+	cargo build --release --locked --target '$(HOST_TRIPLE)'
 
-## Build all targets; report all failures and fail the aggregate target.
-build-targets: add-targets
-	@echo "==> Building targets (this will take a while)"
-	@failed=0; for t in $(TARGETS); do \
-		echo "-- Building for $$t"; \
-		if cargo build --release --locked --target $$t; then \
-			echo "   ok: $$t"; \
-		else \
-			echo "   FAILED: $$t (see cargo output)"; \
-			failed=1; \
-		fi; \
-	done; exit $$failed
-
-## Collect built binaries and dynamic libraries into dist/<triple>/
 collect:
-	@echo "==> Collecting binaries and libraries into ./dist"
-	@rm -rf dist
-	@mkdir -p dist
-	@for t in $(TARGETS); do \
-		case $$t in \
-		*windows*) ext=.exe; libext=.dll ;; \
-		*darwin*) ext=; libext=.dylib ;; \
-		*) ext=; libext=.so ;; \
-		esac; \
-		src=target/$$t/release/$(BIN_NAME)$${ext}; \
-		if [ -f "$$src" ]; then \
-			mkdir -p dist/$$t; \
-			cp "$$src" dist/$$t/ || true; \
-			echo "  copied: $$src -> dist/$$t/"; \
-			\
-			for lib in target/$$t/release/*$${libext}; do \
-				if [ -f "$$lib" ]; then \
-					cp "$$lib" dist/$$t/ || true; \
-					echo "  copied: $$lib -> dist/$$t/"; \
-				fi; \
-			done; \
-		else \
-			echo "  missing: $$src"; \
-		fi; \
-	done
+	@set -eu; \
+	if [ -z '$(HOST_TRIPLE)' ] || { [ -n '$(EXPECTED_TRIPLE)' ] && [ '$(HOST_TRIPLE)' != '$(EXPECTED_TRIPLE)' ]; }; then \
+		printf '%s\n' 'Unsupported host or non-native target: $(UNAME_S) $(UNAME_M)' >&2; exit 1; \
+	fi; \
+	if [ -z "$${LIBTORCH:-}" ] || [ ! -d "$$LIBTORCH/lib" ]; then \
+		printf '%s\n' 'Set LIBTORCH to the matching libtorch 2.11.0 directory (with lib/).' >&2; exit 1; \
+	fi; \
+	ext=; if [ '$(HOST_TRIPLE)' = x86_64-pc-windows-msvc ]; then ext=.exe; fi; \
+	src='target/$(HOST_TRIPLE)/release/pixworker'$$ext; \
+	if [ ! -f "$$src" ]; then printf 'Missing binary: %s\n' "$$src" >&2; exit 1; fi; \
+	out='dist/$(HOST_TRIPLE)'; mkdir -p "$$out"; \
+	copied=0; \
+	for lib in "$$LIBTORCH"/lib/*.dylib "$$LIBTORCH"/lib/*.so* "$$LIBTORCH"/lib/*.dll; do \
+		[ -f "$$lib" ] || continue; \
+		cp -L "$$lib" "$$out/"; copied=1; \
+	done; \
+	if [ "$$copied" -ne 1 ]; then printf '%s\n' 'No dynamic libtorch libraries found in LIBTORCH/lib.' >&2; exit 1; fi; \
+	if [ '$(HOST_TRIPLE)' = aarch64-apple-darwin ]; then \
+		install_name_tool -change /opt/llvm-openmp/lib/libomp.dylib @loader_path/libomp.dylib "$$out/libtorch_cpu.dylib"; \
+	fi; \
+	cp "$$src" "$$out/"; \
+	printf 'Package ready: %s/\n' "$$out"
 
-## Full pipeline: add targets, build, collect
 dist: build-targets collect
 
-## Individual target builds
 macos-arm64:
-	@echo "==> Building for macOS ARM64"
-	@rustup target add aarch64-apple-darwin >/dev/null 2>&1 || true
-	@cargo build --release --target aarch64-apple-darwin
-	@echo "✓ Binary: target/aarch64-apple-darwin/release/$(BIN_NAME)"
-	@echo "Copying dynamic libraries..."
-	@mkdir -p dist/aarch64-apple-darwin
-	@cp target/aarch64-apple-darwin/release/$(BIN_NAME) dist/aarch64-apple-darwin/
-	@cp target/aarch64-apple-darwin/release/*.dylib dist/aarch64-apple-darwin/ 2>/dev/null || true
-	@echo "✓ Package ready: dist/aarch64-apple-darwin/"
+	@$(MAKE) dist EXPECTED_TRIPLE=aarch64-apple-darwin
 
 linux-x64:
-	@echo "==> Building for Linux x86_64"
-	@rustup target add x86_64-unknown-linux-gnu >/dev/null 2>&1 || true
-	@cargo build --release --target x86_64-unknown-linux-gnu
-	@echo "✓ Binary: target/x86_64-unknown-linux-gnu/release/$(BIN_NAME)"
-	@echo "Copying dynamic libraries..."
-	@mkdir -p dist/x86_64-unknown-linux-gnu
-	@cp target/x86_64-unknown-linux-gnu/release/$(BIN_NAME) dist/x86_64-unknown-linux-gnu/
-	@cp target/x86_64-unknown-linux-gnu/release/*.so dist/x86_64-unknown-linux-gnu/ 2>/dev/null || true
-	@echo "✓ Package ready: dist/x86_64-unknown-linux-gnu/"
-
-linux-arm64:
-	@echo "==> Building for Linux ARM64"
-	@rustup target add aarch64-unknown-linux-gnu >/dev/null 2>&1 || true
-	@cargo build --release --target aarch64-unknown-linux-gnu
-	@echo "✓ Binary: target/aarch64-unknown-linux-gnu/release/$(BIN_NAME)"
-	@echo "Copying dynamic libraries..."
-	@mkdir -p dist/aarch64-unknown-linux-gnu
-	@cp target/aarch64-unknown-linux-gnu/release/$(BIN_NAME) dist/aarch64-unknown-linux-gnu/
-	@cp target/aarch64-unknown-linux-gnu/release/*.so dist/aarch64-unknown-linux-gnu/ 2>/dev/null || true
-	@echo "✓ Package ready: dist/aarch64-unknown-linux-gnu/"
+	@$(MAKE) dist EXPECTED_TRIPLE=x86_64-unknown-linux-gnu
 
 windows-x64:
-	@echo "==> Building for Windows x86_64"
-	@rustup target add x86_64-pc-windows-msvc >/dev/null 2>&1 || true
-	@cargo build --release --target x86_64-pc-windows-msvc
-	@echo "✓ Binary: target/x86_64-pc-windows-msvc/release/$(BIN_NAME).exe"
-	@echo "Copying dynamic libraries..."
-	@mkdir -p dist/x86_64-pc-windows-msvc
-	@cp target/x86_64-pc-windows-msvc/release/$(BIN_NAME).exe dist/x86_64-pc-windows-msvc/
-	@cp target/x86_64-pc-windows-msvc/release/*.dll dist/x86_64-pc-windows-msvc/ 2>/dev/null || true
-	@echo "✓ Package ready: dist/x86_64-pc-windows-msvc/"
-
-windows-arm64:
-	@echo "==> Building for Windows ARM64"
-	@rustup target add aarch64-pc-windows-msvc >/dev/null 2>&1 || true
-	@cargo build --release --target aarch64-pc-windows-msvc
-	@echo "✓ Binary: target/aarch64-pc-windows-msvc/release/$(BIN_NAME).exe"
-	@echo "Copying dynamic libraries..."
-	@mkdir -p dist/aarch64-pc-windows-msvc
-	@cp target/aarch64-pc-windows-msvc/release/$(BIN_NAME).exe dist/aarch64-pc-windows-msvc/
-	@cp target/aarch64-pc-windows-msvc/release/*.dll dist/aarch64-pc-windows-msvc/ 2>/dev/null || true
-	@echo "✓ Package ready: dist/aarch64-pc-windows-msvc/"
-
-clean:
-	@echo "Cleaning cargo artifacts"
-	@cargo clean
-	@rm -rf dist
-	@echo "Done"
+	@$(MAKE) dist EXPECTED_TRIPLE=x86_64-pc-windows-msvc

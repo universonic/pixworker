@@ -1,740 +1,720 @@
 use crate::utils::ntsc::NTSC;
-use anyhow::{Result, bail};
-use std::collections::HashSet;
-use std::fs;
+use anyhow::{Context, Result, bail, ensure};
+use ffmpeg::{Dictionary, Packet, Rational, codec, filter, format, frame, media};
+use ffmpeg_next as ffmpeg;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use tempfile::TempDir;
+use std::time::Instant;
+use tempfile::{Builder, NamedTempFile};
 
-pub fn extract(
-    input: &PathBuf,
-    output: &Option<PathBuf>,
-    group_cap: &Option<u64>,
-    trans_frames: &Option<u64>,
-    acodec: &Option<String>,
-    silent: &Option<bool>,
-) -> Result<()> {
-    let options = ExtractOptions::try_new(input, output, group_cap, trans_frames, acodec, silent)?;
-    options.process()?;
-    Ok(())
+#[derive(Clone, Copy, Debug)]
+pub struct VideoInfo {
+    pub width: u32,
+    pub height: u32,
+    pub rate: NTSC,
+    pub has_audio: bool,
+    pub frame_estimate: Option<u64>,
 }
 
-pub struct ExtractOptions {
-    input: PathBuf,
-    output: PathBuf,
-    group_cap: u64,
-    trans_frames: u64,
-    acodec: String,
-    silent: bool,
-}
-
-impl ExtractOptions {
-    pub fn new(
-        input: PathBuf,
-        output: PathBuf,
-        group_cap: u64,
-        trans_frames: u64,
-        acodec: String,
-        silent: bool,
-    ) -> Self {
-        Self {
-            input,
-            output,
-            group_cap,
-            trans_frames,
-            acodec,
-            silent,
-        }
+impl VideoInfo {
+    pub fn open(input: &Path) -> Result<Self> {
+        ffmpeg::init()?;
+        let context = format::input(input)?;
+        Self::from_context(&context)
     }
 
-    pub fn try_new(
-        input: &PathBuf,
-        output: &Option<PathBuf>,
-        group_cap: &Option<u64>,
-        trans_frames: &Option<u64>,
-        acodec: &Option<String>,
-        silent: &Option<bool>,
-    ) -> Result<Self> {
-        let input = input.as_path();
-        if !input.exists() {
-            bail!("Specified input video does not exist.");
-        }
-        println!("Input video: {}", input.display());
-
-        let mut workdir: PathBuf;
-        if !output.is_none() {
-            workdir = output.as_ref().unwrap().to_path_buf();
-        } else {
-            let default_dir_name = input
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap()
-                .to_string();
-
-            workdir = input.parent().as_ref().unwrap().to_path_buf();
-            workdir.push(Path::new(&default_dir_name));
-        }
-
-        let group_cap = group_cap.unwrap_or(0);
-        let trans_frames = trans_frames.unwrap_or(10);
-
-        if group_cap > 0 && group_cap < trans_frames {
-            bail!(
-                "Value of `group_cap` '{}' is less than `trans_frames`: {}",
-                group_cap,
-                trans_frames
-            )
-        }
-
-        let acodec = acodec.clone().unwrap_or("pcm_s16le".to_string());
-        let silent = silent.unwrap_or(false);
-
-        Ok(Self::new(
-            input.to_path_buf(),
-            workdir,
-            group_cap,
-            trans_frames,
-            acodec,
-            silent,
-        ))
-    }
-
-    pub fn process(&self) -> Result<()> {
-        if self.output.exists() {
-            if self.output.is_file() {
-                if let Err(e) = fs::remove_file(&self.output) {
-                    bail!(e)
-                }
-            } else if self.output.is_dir() {
-                if let Err(e) = fs::remove_dir_all(&self.output) {
-                    bail!(e)
-                }
-            }
-            println!("Removed existing files in '{}'...", self.output.display());
-        }
-
-        if let Err(e) = fs::create_dir_all(&self.output) {
-            bail!(e);
-        }
-
-        let mut frame_files_location = self.output.clone();
-        frame_files_location.push("frames");
-        if let Err(e) = fs::create_dir(frame_files_location.to_str().unwrap()) {
-            bail!(e);
-        }
-        let frame_root = frame_files_location.clone();
-        frame_files_location.push("%d.png");
-
-        let mut audio_file_location = self.output.clone();
-        audio_file_location.push("audio");
-        if let Err(e) = fs::create_dir(audio_file_location.to_str().unwrap()) {
-            bail!(e);
-        }
-        audio_file_location.push("0.wav");
-
-        println!(
-            "Extracting to directory '{}' with ffmpeg...",
-            self.output.display()
+    fn from_context(context: &format::context::Input) -> Result<Self> {
+        let stream = context
+            .streams()
+            .find(|s| s.parameters().medium() == media::Type::Video)
+            .context("Failed to retrieve video information from input file.")?;
+        let parameters = stream.parameters();
+        let rate = stream.rate();
+        let (num, den) = (rate.numerator(), rate.denominator());
+        ensure!(
+            num > 0 && den > 0,
+            "Failed to retrieve video information from input file."
         );
+        let decoder = codec::context::Context::from_parameters(parameters)?
+            .decoder()
+            .video()?;
+        ensure!(
+            decoder.width() > 0 && decoder.height() > 0,
+            "Failed to retrieve video information from input file."
+        );
+        Ok(Self {
+            width: decoder.width(),
+            height: decoder.height(),
+            rate: NTSC {
+                num: num as u64,
+                den: den as u64,
+            },
+            has_audio: context
+                .streams()
+                .any(|s| s.parameters().medium() == media::Type::Audio),
+            frame_estimate: (stream.frames() > 0).then_some(stream.frames() as u64),
+        })
+    }
+}
 
-        // NOTE: Currently we do not support VFR videos.
-        // We does not use `-vsync 0 -frame_pts 1` arguments because it may cause
-        // extra frames being extracted. Stream will be converted to CFR during extraction.
-        let mut cmd = Command::new("ffmpeg");
-        cmd.args([
-            "-i",
-            self.input.to_str().unwrap(),
-            "-map",
-            "0:v:0",
-            "-start_number",
-            "0",
-            frame_files_location.to_str().unwrap(),
-            "-map",
-            "0:a:0",
-            "-af",
-            "aresample=async=1:first_pts=0",
-            "-acodec",
-            self.acodec.as_str(),
-            "-ar",
-            "44100",
-            "-ac",
-            "2",
-            audio_file_location.to_str().unwrap(),
-        ]);
-        if !self.silent {
-            cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+pub struct VideoDecoder {
+    input: format::context::Input,
+    stream: usize,
+    decoder: codec::decoder::Video,
+    graph: filter::Graph,
+    rate: NTSC,
+    next_pts: i64,
+    last: Option<frame::Video>,
+    previous: Option<frame::Video>,
+    repeat_previous: i64,
+    repeat_current: i64,
+    frames_prev_hist: [i64; 3],
+    demux_eof: bool,
+    filter_eof: bool,
+    done: bool,
+}
+
+impl VideoDecoder {
+    pub fn new(input: &Path) -> Result<Self> {
+        ffmpeg::init()?;
+        let input = format::input(input)?;
+        let stream = input
+            .streams()
+            .find(|s| s.parameters().medium() == media::Type::Video)
+            .context("Failed to retrieve video information from input file.")?;
+        let index = stream.index();
+        let rate = stream.rate();
+        ensure!(
+            rate.numerator() > 0 && rate.denominator() > 0,
+            "Failed to retrieve video information from input file."
+        );
+        let time_base = stream.time_base();
+        let mut context = codec::context::Context::from_parameters(stream.parameters())?;
+        context.set_threading(codec::threading::Config::kind(
+            codec::threading::Type::Frame,
+        ));
+        let decoder = context.decoder().video()?;
+        let mut graph = filter::Graph::new();
+        let args = format!(
+            "video_size={}x{}:pix_fmt={}:time_base={}:pixel_aspect={}:frame_rate={}",
+            decoder.width(),
+            decoder.height(),
+            decoder.format() as i32,
+            time_base,
+            decoder.aspect_ratio(),
+            rate
+        );
+        graph.add(
+            &filter::find("buffer").context("Missing buffer filter")?,
+            "in",
+            &args,
+        )?;
+        graph.add(
+            &filter::find("buffersink").context("Missing buffersink filter")?,
+            "out",
+            "",
+        )?;
+        graph
+            .output("in", 0)?
+            .input("out", 0)?
+            .parse("format=rgb24")?;
+        // This controls auto-inserted format conversion filters, including YUV -> RGB.
+        unsafe {
+            let opts = std::ffi::CString::new("flags=bicubic")?;
+            (*graph.as_mut_ptr()).scale_sws_opts = ffmpeg::ffi::av_strdup(opts.as_ptr());
         }
-        let mut child = cmd.spawn()?;
+        graph.validate()?;
+        Ok(Self {
+            input,
+            stream: index,
+            decoder,
+            graph,
+            rate: NTSC {
+                num: rate.numerator() as u64,
+                den: rate.denominator() as u64,
+            },
+            next_pts: 0,
+            last: None,
+            previous: None,
+            repeat_previous: 0,
+            repeat_current: 0,
+            frames_prev_hist: [0; 3],
+            demux_eof: false,
+            filter_eof: false,
+            done: false,
+        })
+    }
 
-        let status = child.wait()?;
-        if !status.success() {
-            bail!("Error executing ffmpeg: {}", status.code().unwrap())
-        }
-
-        let mut frame_files: Vec<PathBuf> = Vec::new();
-        for entry in fs::read_dir(frame_root.as_path())? {
-            let entry = entry?;
-            let path = entry.path();
-
-            if path.is_file() {
-                if let Some(extension) = path.extension() {
-                    if extension == "png" {
-                        frame_files.push(path);
-                    }
-                }
-            }
-        }
-        frame_files.sort_by(|a, b| {
-            let x = a
-                .file_stem()
-                .unwrap()
-                .to_str()
-                .and_then(|num_str| num_str.parse::<u64>().ok())
-                .unwrap_or(0);
-            let y = b
-                .file_stem()
-                .unwrap()
-                .to_str()
-                .and_then(|num_str| num_str.parse::<u64>().ok())
-                .unwrap_or(0);
-            x.cmp(&y)
-        });
-
-        let frame_count = frame_files.len() as u64;
-        println!("Extract {} frames in total.", frame_count);
-
-        if frame_count == 0 {
-            return Ok(());
-        }
-
-        if self.group_cap == 0 {
-            return Ok(());
-        }
-
-        let group_count = if self.group_cap == 0 {
-            0
+    fn sync_frame(&mut self, rgb: frame::Video) {
+        let tb = self.graph.get("out").unwrap().sink().time_base();
+        let tick = self.rate.num as f64 / self.rate.den as f64 * tb.numerator() as f64
+            / tb.denominator() as f64;
+        let duration = if rgb.packet().duration == 0 {
+            ffmpeg::Rescale::rescale(&1, Rational(self.rate.den as i32, self.rate.num as i32), tb)
+                as f64
+                * tick
         } else {
-            (frame_count + self.group_cap - self.trans_frames - 1)
-                / (self.group_cap - self.trans_frames)
+            rgb.packet().duration as f64 * tick
         };
-        println!("Organize into {} groups.", group_count);
-
-        for group_index in 0..group_count {
-            let start_index = (group_index * (self.group_cap - self.trans_frames)) as usize;
-            let end_index = std::cmp::min(
-                (start_index as u64 + self.group_cap) as usize,
-                frame_count as usize - 1,
-            );
-
-            let group_dir_name = format!("{}-{}", start_index, end_index);
-            let group_dir = frame_root.as_path().join(&group_dir_name);
-
-            fs::create_dir_all(&group_dir)?;
-
-            println!("Creating group#{}: {}", group_index, group_dir_name);
-
-            for file_index in start_index..end_index {
-                if file_index < frame_files.len() {
-                    let source_path = &frame_files[file_index];
-                    let file_name = source_path.file_name().unwrap();
-                    let dest_path = group_dir.join(file_name);
-
-                    fs::copy(source_path, &dest_path)?;
-                }
+        // ffmpeg_filter.c:adjust_frame_pts_to_encoder_tb preserves fractional ticks
+        // before video_sync_process decides which frame occupies each CFR slot.
+        let exact = rgb.pts().map_or(self.next_pts as f64, |pts| {
+            let bits = (29 - (self.rate.num as u32).ilog2() as i32).clamp(0, 16) as u32;
+            let tb_out = Rational(self.rate.den as i32, (self.rate.num << bits) as i32);
+            let precise = ffmpeg::Rescale::rescale(&pts, tb, tb_out) as f64 / (1u64 << bits) as f64;
+            if precise != precise.round_ties_even() {
+                precise + precise.signum() / 131072.0
+            } else {
+                precise
             }
-        }
-
-        println!("Cleaning up...");
-        for file in frame_files {
-            if let Err(e) = fs::remove_file(file) {
-                bail!(e);
-            }
-        }
-        Ok(())
-    }
-}
-
-pub fn archive(
-    input: &PathBuf,
-    output: &Option<PathBuf>,
-    frame_rate: &Option<u64>,
-    keyframes: &Option<f64>,
-    acodec: &Option<String>,
-    silent: &Option<bool>,
-) -> Result<()> {
-    let options = ArchiveOptions::try_new(input, output, frame_rate, keyframes, acodec, silent)?;
-    options.process()?;
-    Ok(())
-}
-
-pub struct ArchiveOptions {
-    input: PathBuf,
-    output: PathBuf,
-    frame_rate: NTSC,
-    keyframes: f64,
-    acodec: String,
-    silent: bool,
-}
-
-impl ArchiveOptions {
-    pub fn new(
-        input: PathBuf,
-        output: PathBuf,
-        frame_rate: NTSC,
-        keyframes: f64,
-        acodec: String,
-        silent: bool,
-    ) -> Self {
-        Self {
-            input,
-            output,
-            frame_rate,
-            keyframes,
-            acodec,
-            silent,
-        }
-    }
-
-    pub fn try_new(
-        input: &PathBuf,
-        output: &Option<PathBuf>,
-        frame_rate: &Option<u64>,
-        keyframes: &Option<f64>,
-        acodec: &Option<String>,
-        silent: &Option<bool>,
-    ) -> Result<Self> {
-        let input = input.as_path();
-        if !input.exists() || !input.is_dir() {
-            bail!("Specified input directory does not exist or is not a directory.");
-        }
-        println!("Input directory: {}", input.display());
-
-        let mut actual_output: PathBuf;
-        if !output.is_none() {
-            actual_output = output.as_ref().unwrap().to_path_buf();
-        } else {
-            let default_file_name = input
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap()
-                .to_string()
-                + ".mov";
-
-            actual_output = input.parent().as_ref().unwrap().to_path_buf();
-            actual_output.push(Path::new(&default_file_name));
-        }
-
-        let frame_rate = frame_rate.unwrap_or(30);
-        if frame_rate == 0 {
-            bail!("Frame rate must be positive.");
-        }
-        let keyframes = keyframes.unwrap_or(1.0);
-        let acodec = acodec.clone().unwrap_or("pcm_s16le".to_string());
-        let silent = silent.unwrap_or(false);
-
-        Ok(Self::new(
-            input.to_path_buf(),
-            actual_output,
-            NTSC::from_strict_fps(&frame_rate),
-            keyframes,
-            acodec,
-            silent,
-        ))
-    }
-
-    pub fn process(&self) -> Result<()> {
-        if self.output.exists() {
-            if self.output.is_dir() {
-                if let Err(e) = fs::remove_dir_all(&self.output) {
-                    bail!(e)
-                }
-            } else if self.output.is_file() {
-                if let Err(e) = fs::remove_file(&self.output) {
-                    bail!(e)
-                }
-            }
-            println!("Removed existing files at '{}'...", self.output.display());
-        }
-
-        let mut frame_files_location = self.input.clone();
-        frame_files_location.push("frames");
-
-        if !frame_files_location.exists() || !frame_files_location.is_dir() {
-            bail!("There is no frames directory inside the input directory.");
-        }
-
-        // List frame group directories if there are any.
-        let mut frame_dirs: Vec<PathBuf> = Vec::new();
-        let mut frame_files: Vec<PathBuf> = Vec::new();
-        for entry in fs::read_dir(frame_files_location.as_path())? {
-            let entry = entry?;
-            let path = entry.path();
-
-            if path.is_dir() {
-                // Check if the directory name is in the format of "start-end".
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if let Some(idx) = name.find("-") {
-                        if idx > 0 && idx < name.len() - 1 {
-                            frame_dirs.push(path);
-                        }
-                    }
-                }
-                continue;
-            }
-            if path.is_file() {
-                if let Some(extension) = path.extension() {
-                    if extension == "png" {
-                        frame_files.push(path);
-                    }
-                }
-            }
-        }
-
-        frame_dirs.sort_by(|a, b| {
-            let x = get_first_num_from_group_name(a.file_name().unwrap().to_str().unwrap());
-            let y = get_first_num_from_group_name(b.file_name().unwrap().to_str().unwrap());
-            x.cmp(&y)
         });
-
-        let tmp_dir = TempDir::new_in(frame_files_location.parent().unwrap())?;
-
-        if !frame_dirs.is_empty() {
-            // There are frame groups.
-            // Gather all frame files from the groups to `frame_files_location`.
-            println!("Found {} frame groups.", frame_dirs.len());
-
-            if !frame_files.is_empty() {
-                for file in &frame_files {
-                    if let Err(e) = fs::remove_file(file) {
-                        bail!(e);
-                    }
-                }
-                frame_files.clear();
+        let mut delta0 = exact - self.next_pts as f64;
+        let delta = delta0 + duration;
+        if delta0 < 0.0 && delta > 0.0 {
+            delta0 = 0.0;
+        }
+        let mut count = 1;
+        let mut from_previous = 0;
+        if delta < -1.1 {
+            count = 0;
+        } else if delta > 1.1 {
+            count = (delta as f32).round_ties_even() as i64;
+            if delta0 > 1.1 {
+                from_previous = ((delta0 - 0.6) as f32).round_ties_even() as i64;
             }
+        }
+        self.frames_prev_hist.rotate_right(1);
+        self.frames_prev_hist[0] = from_previous;
+        self.previous = self.last.replace(rgb);
+        self.repeat_previous = if self.previous.is_some() {
+            from_previous.min(count)
+        } else {
+            0
+        };
+        self.repeat_current = count - self.repeat_previous;
+    }
 
-            let mut seen_files = HashSet::new();
-            for dir in frame_dirs {
-                for entry in fs::read_dir(dir.as_path())? {
-                    let entry = entry?;
-                    let path = entry.path();
-
-                    if path.is_file() && path.extension().map_or(false, |ext| ext == "png") {
-                        if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
-                            if seen_files.insert(file_name.to_string()) {
-                                frame_files.push(path);
-                            }
+    pub fn next_frame(&mut self) -> Result<Option<frame::Video>> {
+        loop {
+            if self.repeat_previous > 0 || self.repeat_current > 0 {
+                let source = if self.repeat_previous > 0 {
+                    self.repeat_previous -= 1;
+                    self.previous.as_ref().unwrap()
+                } else {
+                    self.repeat_current -= 1;
+                    self.last.as_ref().unwrap()
+                };
+                let mut output = frame::Video::empty();
+                let code =
+                    unsafe { ffmpeg::ffi::av_frame_ref(output.as_mut_ptr(), source.as_ptr()) };
+                if code < 0 {
+                    return Err(ffmpeg::Error::from(code).into());
+                }
+                output.set_pts(Some(self.next_pts));
+                self.next_pts += 1;
+                return Ok(Some(output));
+            }
+            if self.done {
+                return Ok(None);
+            }
+            let mut rgb = frame::Video::empty();
+            match self.graph.get("out").unwrap().sink().frame(&mut rgb) {
+                Ok(()) => {
+                    self.sync_frame(rgb);
+                    continue;
+                }
+                Err(ffmpeg::Error::Eof) => {
+                    let mut hist = self.frames_prev_hist;
+                    hist.sort_unstable();
+                    self.repeat_current = if self.last.is_some() { hist[1] } else { 0 };
+                    self.done = true;
+                    continue;
+                }
+                Err(e) if again(e) => {}
+                Err(e) => return Err(e.into()),
+            }
+            if self.filter_eof {
+                bail!("Video filter did not terminate after flush");
+            }
+            let mut decoded = frame::Video::empty();
+            match self.decoder.receive_frame(&mut decoded) {
+                Ok(()) => {
+                    let pts = decoded.timestamp();
+                    decoded.set_pts(pts);
+                    self.graph.get("in").unwrap().source().add(&decoded)?;
+                }
+                Err(ffmpeg::Error::Eof) => {
+                    self.graph.get("in").unwrap().source().flush()?;
+                    self.filter_eof = true;
+                }
+                Err(e) if again(e) && !self.demux_eof => loop {
+                    let mut packet = Packet::empty();
+                    match packet.read(&mut self.input) {
+                        Ok(()) if packet.stream() == self.stream => {
+                            self.decoder.send_packet(&packet)?;
+                            break;
                         }
+                        Ok(()) => {}
+                        Err(ffmpeg::Error::Eof) => {
+                            self.decoder.send_eof()?;
+                            self.demux_eof = true;
+                            break;
+                        }
+                        Err(e) => return Err(e.into()),
                     }
-                }
+                },
+                Err(e) => return Err(e.into()),
             }
-
-            frame_files.sort_by(|a, b| {
-                let x = a
-                    .file_stem()
-                    .unwrap()
-                    .to_str()
-                    .and_then(|num_str| num_str.parse::<f64>().ok())
-                    .unwrap_or(0.0);
-                let y = b
-                    .file_stem()
-                    .unwrap()
-                    .to_str()
-                    .and_then(|num_str| num_str.parse::<f64>().ok())
-                    .unwrap_or(0.0);
-                x.partial_cmp(&y).unwrap()
-            });
-
-            let tmp_dir_path = tmp_dir.path().to_path_buf();
-            for (index, file) in frame_files.iter().enumerate() {
-                let new_file_name = format!("{}.png", index);
-                let new_file_path = tmp_dir_path.join(new_file_name);
-                fs::copy(file, &new_file_path)?;
-            }
-            frame_files_location = tmp_dir_path;
         }
-        println!("Total {} frames.", frame_files.len());
+    }
+}
 
-        let mut audio_file_location = self.input.clone();
-        audio_file_location.push("audio");
-        audio_file_location.push("0.wav");
-        if !audio_file_location.exists() || !audio_file_location.is_file() {
-            bail!("Audio file does not exist or is not a file.");
+impl Iterator for VideoDecoder {
+    type Item = Result<frame::Video>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_frame().transpose()
+    }
+}
+
+struct Audio {
+    input: format::context::Input,
+    stream: usize,
+    input_time_base: Rational,
+    video_stream: Option<(usize, Rational)>,
+    decoder: codec::decoder::Audio,
+    graph: filter::Graph,
+    encoder: codec::encoder::audio::Encoder,
+    output_stream: usize,
+    next_packet: Option<Packet>,
+    next_video: Option<Packet>,
+    input_eof: bool,
+    eof: bool,
+}
+
+impl Audio {
+    fn new(input: &Path, output: &mut format::context::Output) -> Result<Option<Self>> {
+        let input = format::input(input)?;
+        let Some(stream) = input
+            .streams()
+            .find(|s| s.parameters().medium() == media::Type::Audio)
+        else {
+            return Ok(None);
+        };
+        let index = stream.index();
+        let input_time_base = stream.time_base();
+        let decoder = codec::context::Context::from_parameters(stream.parameters())?
+            .decoder()
+            .audio()?;
+        let layout = if decoder.channel_layout().is_empty() {
+            ffmpeg::ChannelLayout::default(i32::from(decoder.channels()))
+        } else {
+            decoder.channel_layout()
+        };
+        ensure!(!layout.is_empty(), "Audio stream has no channel layout");
+        let video_stream = input
+            .streams()
+            .find(|s| s.parameters().medium() == media::Type::Video)
+            .map(|s| (s.index(), s.time_base()));
+        let pcm = ffmpeg::encoder::find(codec::Id::PCM_S16LE)
+            .context("pcm_s16le encoder is unavailable")?;
+        let global = output
+            .format()
+            .flags()
+            .contains(format::Flags::GLOBAL_HEADER);
+        let mut out_stream = output.add_stream(pcm)?;
+        let output_stream = out_stream.index();
+        let mut encoder = codec::context::Context::new_with_codec(pcm)
+            .encoder()
+            .audio()?;
+        encoder.set_rate(44100);
+        encoder.set_format(ffmpeg::format::Sample::I16(
+            ffmpeg::format::sample::Type::Packed,
+        ));
+        encoder.set_channel_layout(ffmpeg::ChannelLayout::STEREO);
+        encoder.set_time_base((1, 44100));
+        if global {
+            encoder.set_flags(codec::Flags::GLOBAL_HEADER);
         }
+        out_stream.set_time_base((1, 44100));
+        let encoder = encoder.open_as(pcm)?;
+        out_stream.set_parameters(&encoder);
 
-        println!(
-            "Archiving to file '{}' with ffmpeg...",
-            self.output.display()
+        let mut graph = filter::Graph::new();
+        let args = format!(
+            "time_base={}:sample_rate={}:sample_fmt={}:channel_layout=0x{:x}",
+            input_time_base,
+            decoder.rate(),
+            decoder.format().name(),
+            layout.bits()
         );
+        graph.add(
+            &filter::find("abuffer").context("Missing abuffer filter")?,
+            "in",
+            &args,
+        )?;
+        graph.add(
+            &filter::find("abuffersink").context("Missing abuffersink filter")?,
+            "out",
+            "",
+        )?;
+        graph.output("in", 0)?.input("out", 0)?.parse(
+            "aresample=async=1:first_pts=0,aformat=sample_fmts=s16:sample_rates=44100:channel_layouts=stereo"
+        )?;
+        graph.validate()?;
+        Ok(Some(Self {
+            input,
+            stream: index,
+            input_time_base,
+            video_stream,
+            decoder,
+            graph,
+            encoder,
+            output_stream,
+            next_packet: None,
+            next_video: None,
+            input_eof: false,
+            eof: false,
+        }))
+    }
 
-        let ntsc = self.frame_rate;
-        let actual_frame_rate = format!("{}/{}", ntsc.num, ntsc.den);
-        let keyframe_interval =
-            (self.keyframes as f64 * ntsc.num as f64 / ntsc.den as f64).round() as u64;
+    fn drain_packets(&mut self, output: &mut format::context::Output) -> Result<()> {
+        let time_base = output.stream(self.output_stream).unwrap().time_base();
+        loop {
+            let mut packet = Packet::empty();
+            match self.encoder.receive_packet(&mut packet) {
+                Ok(()) => {
+                    packet.set_stream(self.output_stream);
+                    packet.rescale_ts(self.encoder.time_base(), time_base);
+                    packet.write_interleaved(output)?;
+                }
+                Err(ffmpeg::Error::Eof) => return Ok(()),
+                Err(e) if again(e) => return Ok(()),
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
 
-        // TODO: currently we only archive to H.265 MOV format in quality (lossless) profile.
-        // We may add a performance profile in the future.
-        let mut cmd = Command::new("ffmpeg");
-        cmd.args([
-            "-framerate",
-            actual_frame_rate.as_str(),
-            "-i",
-            &format!("{}/%d.png", frame_files_location.to_str().unwrap()),
-            "-i",
-            audio_file_location.to_str().unwrap(),
-            "-c:v",
-            "libx265",
-            "-tag:v",
-            "hvc1",
-            "-x265-params",
-            "lossless=1:aq-mode=3",
-            "-profile:v",
-            "main444-12",
-            "-pix_fmt",
-            "yuv444p",
-            "-crf",
-            "18",
-            "-g",
-            &keyframe_interval.to_string(),
-            "-c:a",
-            self.acodec.as_str(),
-            self.output.to_str().unwrap(),
-        ]);
-        if !self.silent {
-            cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+    fn drain_filter(&mut self, output: &mut format::context::Output) -> Result<()> {
+        loop {
+            let mut filtered = frame::Audio::empty();
+            match self.graph.get("out").unwrap().sink().frame(&mut filtered) {
+                Ok(()) => {
+                    // The sink's time base may differ from the encoder's time base.
+                    let base = self.graph.get("out").unwrap().sink().time_base();
+                    let pts = filtered
+                        .pts()
+                        .map(|pts| ffmpeg::Rescale::rescale(&pts, base, self.encoder.time_base()));
+                    filtered.set_pts(pts);
+                    self.encoder.send_frame(&filtered)?;
+                    self.drain_packets(output)?;
+                }
+                Err(ffmpeg::Error::Eof) => return Ok(()),
+                Err(e) if again(e) => return Ok(()),
+                Err(e) => return Err(e.into()),
+            }
         }
-        let mut child = cmd.spawn()?;
-        let status = child.wait()?;
-        if !status.success() {
-            bail!("Error executing ffmpeg: {}", status.code().unwrap())
+    }
+
+    fn drain_decoder(&mut self, output: &mut format::context::Output) -> Result<()> {
+        loop {
+            let mut decoded = frame::Audio::empty();
+            match self.decoder.receive_frame(&mut decoded) {
+                Ok(()) => {
+                    let pts = decoded.timestamp();
+                    decoded.set_pts(pts);
+                    if decoded.channel_layout().is_empty() {
+                        decoded.set_channel_layout(ffmpeg::ChannelLayout::default(i32::from(
+                            decoded.channels(),
+                        )));
+                    }
+                    self.graph.get("in").unwrap().source().add(&decoded)?;
+                    self.drain_filter(output)?;
+                }
+                Err(ffmpeg::Error::Eof) => return Ok(()),
+                Err(e) if again(e) => return Ok(()),
+                Err(e) => return Err(e.into()),
+            }
         }
+    }
+
+    fn video_ahead(&self, packet: &Packet, until: Option<(i64, NTSC)>) -> bool {
+        let Some((frame, fps)) = until else {
+            return false;
+        };
+        self.video_stream.is_some_and(|(index, tb)| {
+            packet.stream() == index
+                && packet
+                    .dts()
+                    .or_else(|| packet.pts())
+                    .is_some_and(|ts| later_than_frame(ts, tb, frame, fps))
+        })
+    }
+
+    fn read_packet(&mut self, until: Option<(i64, NTSC)>) -> Result<Option<Packet>> {
+        if let Some(packet) = self.next_video.take()
+            && self.video_ahead(&packet, until)
+        {
+            self.next_video = Some(packet);
+            return Ok(None);
+        }
+        if self.input_eof {
+            return Ok(None);
+        }
+        loop {
+            let mut packet = Packet::empty();
+            match packet.read(&mut self.input) {
+                Ok(()) if packet.stream() == self.stream => return Ok(Some(packet)),
+                Ok(()) if self.video_ahead(&packet, until) => {
+                    self.next_video = Some(packet);
+                    return Ok(None);
+                }
+                Ok(()) => {}
+                Err(ffmpeg::Error::Eof) => {
+                    self.input_eof = true;
+                    return Ok(None);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
+    fn until(&mut self, output: &mut format::context::Output, frame: i64, fps: NTSC) -> Result<()> {
+        while !self.eof {
+            let packet = match self.next_packet.take() {
+                Some(packet) => Some(packet),
+                None => self.read_packet(Some((frame, fps)))?,
+            };
+            let Some(packet) = packet else {
+                if self.input_eof {
+                    self.flush(output)?;
+                }
+                break;
+            };
+            let pts = packet.pts().or_else(|| packet.dts()).unwrap_or(0);
+            if later_than_frame(pts, self.input_time_base, frame, fps) {
+                self.next_packet = Some(packet);
+                break;
+            }
+            self.decoder.send_packet(&packet)?;
+            self.drain_decoder(output)?;
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self, output: &mut format::context::Output) -> Result<()> {
+        if self.eof {
+            return Ok(());
+        }
+        while let Some(packet) = match self.next_packet.take() {
+            Some(packet) => Some(packet),
+            None => self.read_packet(None)?,
+        } {
+            self.decoder.send_packet(&packet)?;
+            self.drain_decoder(output)?;
+        }
+        self.decoder.send_eof()?;
+        self.drain_decoder(output)?;
+        self.graph.get("in").unwrap().source().flush()?;
+        self.drain_filter(output)?;
+        self.encoder.send_eof()?;
+        self.drain_packets(output)?;
+        self.eof = true;
         Ok(())
     }
 }
 
-pub struct FFProbe {
-    input: PathBuf,
+pub struct VideoEncoder {
+    output: PathBuf,
+    mux: Option<format::context::Output>,
+    temp: Option<NamedTempFile>,
+    encoder: codec::encoder::video::Encoder,
+    scaler: ffmpeg::software::scaling::Context,
+    audio: Option<Audio>,
+    fps: NTSC,
+    frames: i64,
+    first_video_packet: Option<Instant>,
+    width: u32,
+    height: u32,
 }
 
-impl FFProbe {
-    pub fn new(input: &PathBuf) -> Self {
-        Self {
-            input: input.clone(),
+impl VideoEncoder {
+    pub fn new(
+        output: &Path,
+        input: &Path,
+        width: u32,
+        height: u32,
+        fps: NTSC,
+        silent: bool,
+    ) -> Result<Self> {
+        ffmpeg::init()?;
+        ffmpeg::log::set_level(if silent {
+            ffmpeg::log::Level::Error
+        } else {
+            ffmpeg::log::Level::Info
+        });
+        ensure!(
+            width > 0 && height > 0 && fps.num > 0 && fps.den > 0,
+            "Invalid output video dimensions or frame rate"
+        );
+        let num: i32 = fps.num.try_into()?;
+        let den: i32 = fps.den.try_into()?;
+        let extension = output
+            .extension()
+            .context("Output video needs a file extension")?
+            .to_string_lossy();
+        let parent = output
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let temp = Builder::new()
+            .suffix(&format!(".{extension}"))
+            .tempfile_in(parent)?;
+        let mut mux = format::output(temp.path())?;
+        let codec =
+            ffmpeg::encoder::find_by_name("libx265").context("libx265 encoder is unavailable")?;
+        let global = mux.format().flags().contains(format::Flags::GLOBAL_HEADER);
+        let mov = matches!(mux.format().name(), "mov" | "mp4");
+        let mut stream = mux.add_stream(codec)?;
+        let mut video = codec::context::Context::new_with_codec(codec)
+            .encoder()
+            .video()?;
+        video.set_width(width);
+        video.set_height(height);
+        video.set_aspect_ratio((1, 1));
+        video.set_format(ffmpeg::format::Pixel::YUV444P);
+        video.set_time_base((den, num));
+        video.set_frame_rate(Some((num, den)));
+        video.set_gop(((fps.to_fps()).round() as u32).max(1));
+        if global {
+            video.set_flags(codec::Flags::GLOBAL_HEADER);
         }
-    }
-
-    pub fn inspect_audio(&self) -> Result<FFProbeAudioInfo> {
-        let output = Command::new("ffprobe")
-            .args([
-                "-v",
-                "quiet",
-                "-select_streams",
-                "a:0",
-                "-show_entries",
-                "format=codec_name,sample_rate,channels,duration",
-                "-of",
-                "default=noprint_wrappers=1",
-                self.input.to_str().unwrap(),
-            ])
-            .output()?;
-
-        if !output.status.success() {
-            bail!("Error executing ffprobe: {}", output.status);
-        }
-
-        let raw_str = String::from_utf8_lossy(&output.stdout);
-        let lines = raw_str.trim().lines().collect::<Vec<&str>>();
-        let mut info = FFProbeAudioInfo::new();
-
-        // parse the output
-        for line in lines {
-            let kv_pair: Vec<&str> = line.split('=').collect();
-            if kv_pair.len() != 2 {
-                continue;
-            }
-
-            let key = kv_pair[0].trim();
-            let value = kv_pair[1].trim();
-
-            match key {
-                "codec_name" => {
-                    info.codec_name = Some(value.to_string());
-                }
-                "sample_rate" => {
-                    if value.to_lowercase() != "n/a" {
-                        info.sample_rate = match value.parse::<u64>() {
-                            Ok(v) => Some(v),
-                            Err(e) => {
-                                println!("Parse sample_rate value '{}': {}", value, e);
-
-                                None
-                            }
-                        };
-                    }
-                }
-                "channels" => {
-                    if value.to_lowercase() != "n/a" {
-                        info.channels = match value.parse::<u64>() {
-                            Ok(v) => Some(v),
-                            Err(e) => {
-                                println!("Parse channels value '{}': {}", value, e);
-
-                                None
-                            }
-                        };
-                    }
-                }
-                "duration" => {
-                    if value.to_lowercase() != "n/a" {
-                        info.duration = match value.parse::<f64>() {
-                            Ok(v) => Some(v),
-                            Err(e) => {
-                                println!("Parse duration value '{}': {}", value, e);
-
-                                None
-                            }
-                        };
-                    }
-                }
-                _ => {}
+        let mut opts = Dictionary::new();
+        opts.set("x265-params", "lossless=1:aq-mode=3");
+        opts.set("profile", "main444-12");
+        opts.set("crf", "18");
+        let encoder = video.open_as_with(codec, opts)?;
+        stream.set_time_base((den, num));
+        stream.set_rate((num, den));
+        stream.set_avg_frame_rate((num, den));
+        stream.set_parameters(&encoder);
+        if mov {
+            unsafe {
+                (*stream.parameters().as_mut_ptr()).codec_tag = u32::from_le_bytes(*b"hvc1");
             }
         }
-        Ok(info)
+        let audio = Audio::new(input, &mut mux)?;
+        mux.write_header()?;
+        let scaler = ffmpeg::software::scaling::Context::get(
+            ffmpeg::format::Pixel::RGB24,
+            width,
+            height,
+            ffmpeg::format::Pixel::YUV444P,
+            width,
+            height,
+            ffmpeg::software::scaling::Flags::BICUBIC,
+        )?;
+        Ok(Self {
+            output: output.to_path_buf(),
+            mux: Some(mux),
+            temp: Some(temp),
+            encoder,
+            scaler,
+            audio,
+            fps,
+            frames: 0,
+            first_video_packet: None,
+            width,
+            height,
+        })
     }
 
-    pub fn inspect_video(&self) -> Result<FFProbeVideoInfo> {
-        let output = Command::new("ffprobe")
-            .args([
-                "-v",
-                "quiet",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=codec_name,width,height,pix_fmt,r_frame_rate,avg_frame_rate,duration",
-                "-of",
-                "default=noprint_wrappers=1",
-                self.input.to_str().unwrap(),
-            ])
-            .output()?;
-
-        if !output.status.success() {
-            bail!("Error executing ffprobe: {}", output.status);
-        }
-
-        let raw_str = String::from_utf8_lossy(&output.stdout);
-        let lines = raw_str.trim().lines().collect::<Vec<&str>>();
-        let mut info = FFProbeVideoInfo::new();
-
-        // parse the output
-        for line in lines {
-            let kv_pair: Vec<&str> = line.split('=').collect();
-            if kv_pair.len() != 2 {
-                continue;
-            }
-
-            let key = kv_pair[0].trim();
-            let value = kv_pair[1].trim();
-
-            match key {
-                "codec_name" => {
-                    info.codec_name = Some(value.to_string());
+    fn drain_video(&mut self) -> Result<()> {
+        let mux = self.mux.as_mut().unwrap();
+        let time_base = mux.stream(0).unwrap().time_base();
+        loop {
+            let mut packet = Packet::empty();
+            match self.encoder.receive_packet(&mut packet) {
+                Ok(()) => {
+                    packet.set_stream(0);
+                    packet.rescale_ts(self.encoder.time_base(), time_base);
+                    packet.write_interleaved(mux)?;
+                    self.first_video_packet.get_or_insert_with(Instant::now);
                 }
-                "width" => {
-                    if value.to_lowercase() != "n/a" {
-                        info.width = match value.parse::<u64>() {
-                            Ok(v) => Some(v),
-                            Err(e) => {
-                                println!("Parse width value '{}': {}", value, e);
-
-                                None
-                            }
-                        };
-                    }
-                }
-                "height" => {
-                    if value.to_lowercase() != "n/a" {
-                        info.height = match value.parse::<u64>() {
-                            Ok(v) => Some(v),
-                            Err(e) => {
-                                println!("Parse height value '{}': {}", value, e);
-
-                                None
-                            }
-                        };
-                    }
-                }
-                "pix_fmt" => {
-                    info.pix_fmt = Some(value.to_string());
-                }
-                "r_frame_rate" => {
-                    info.r_frame_rate = NTSC::from_string(value);
-                }
-                "avg_frame_rate" => {
-                    info.avg_frame_rate = NTSC::from_string(value);
-                }
-                "duration" => {
-                    if value.to_lowercase() != "n/a" {
-                        info.duration = match value.parse::<f64>() {
-                            Ok(v) => Some(v),
-                            Err(e) => {
-                                println!("Parse duration value '{}': {}", value, e);
-
-                                None
-                            }
-                        };
-                    }
-                }
-                _ => {}
+                Err(ffmpeg::Error::Eof) => return Ok(()),
+                Err(e) if again(e) => return Ok(()),
+                Err(e) => return Err(e.into()),
             }
         }
-        Ok(info)
     }
-}
 
-pub struct FFProbeVideoInfo {
-    pub codec_name: Option<String>,
-    pub width: Option<u64>,
-    pub height: Option<u64>,
-    pub pix_fmt: Option<String>,
-    pub r_frame_rate: Option<NTSC>,
-    pub avg_frame_rate: Option<NTSC>,
-    pub duration: Option<f64>,
-}
+    pub fn first_video_packet(&self) -> Option<Instant> {
+        self.first_video_packet
+    }
 
-impl FFProbeVideoInfo {
-    fn new() -> Self {
-        Self {
-            codec_name: None,
-            width: None,
-            height: None,
-            pix_fmt: None,
-            r_frame_rate: None,
-            avg_frame_rate: None,
-            duration: None,
+    pub fn write(&mut self, rgb: &frame::Video) -> Result<()> {
+        ensure!(self.mux.is_some(), "Encoder already finished");
+        ensure!(
+            rgb.format() == ffmpeg::format::Pixel::RGB24
+                && rgb.width() == self.width
+                && rgb.height() == self.height,
+            "Expected RGB24 frame at {}x{}",
+            self.width,
+            self.height
+        );
+        if let Some(audio) = self.audio.as_mut() {
+            audio.until(self.mux.as_mut().unwrap(), self.frames, self.fps)?;
         }
+        let mut yuv = frame::Video::empty();
+        self.scaler.run(rgb, &mut yuv)?;
+        yuv.set_pts(Some(self.frames));
+        self.encoder.send_frame(&yuv)?;
+        self.drain_video()?;
+        self.frames = self
+            .frames
+            .checked_add(1)
+            .context("Video frame count overflow")?;
+        Ok(())
     }
-}
 
-pub struct FFProbeAudioInfo {
-    pub codec_name: Option<String>,
-    pub sample_rate: Option<u64>,
-    pub channels: Option<u64>,
-    pub duration: Option<f64>,
-}
-
-impl FFProbeAudioInfo {
-    fn new() -> Self {
-        Self {
-            codec_name: None,
-            sample_rate: None,
-            channels: None,
-            duration: None,
+    pub fn finish(&mut self) -> Result<()> {
+        ensure!(self.mux.is_some(), "Encoder already finished");
+        if let Some(audio) = self.audio.as_mut() {
+            audio.flush(self.mux.as_mut().unwrap())?;
         }
+        self.encoder.send_eof()?;
+        self.drain_video()?;
+        self.mux.as_mut().unwrap().write_trailer()?;
+        drop(self.mux.take());
+        self.temp.take().unwrap().persist(&self.output)?;
+        Ok(())
     }
 }
 
-fn get_first_num_from_group_name(s: &str) -> u64 {
-    s.split('-')
-        .next()
-        .and_then(|num_str| num_str.parse::<u64>().ok())
-        .unwrap_or(0)
+fn again(error: ffmpeg::Error) -> bool {
+    error
+        == ffmpeg::Error::Other {
+            errno: ffmpeg::error::EAGAIN,
+        }
+}
+
+fn later_than_frame(ts: i64, tb: Rational, frame: i64, fps: NTSC) -> bool {
+    ts as i128 * tb.numerator() as i128 * fps.num as i128
+        > frame as i128 * fps.den as i128 * tb.denominator() as i128
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_pull_stops_at_future_video_timestamp() {
+        let fps = NTSC {
+            num: 24000,
+            den: 1001,
+        };
+        assert!(!later_than_frame(0, Rational(1, 1000), 0, fps));
+        assert!(!later_than_frame(41, Rational(1, 1000), 1, fps));
+        assert!(later_than_frame(42, Rational(1, 1000), 1, fps));
+        assert!(later_than_frame(2048, Rational(1, 48000), 1, fps));
+    }
 }

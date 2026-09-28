@@ -2,157 +2,74 @@
 
 [中文文档](README_zh_CN.md)
 
-A video enhancement tool powered by ONNX Runtime, supporting frame interpolation and upscaling.
+A streaming video enhancement tool using native tch/libtorch inference and FFmpeg 9 shared libraries for decoding and encoding.
 
 ## Features
 
-- **Frame Interpolation (VFI)**: Enhance video frame rate using GIMM-VFI models for smoother playback
-- **Upscaling**: 4x or higher resolution enhancement using Real-ESRGAN models
-- **Hardware Acceleration**: 
-  - macOS ARM64: CoreML acceleration
-  - Linux / Windows x86_64: CUDA 13 / TensorRT acceleration (CUDA 13.2+, cuDNN 9.23+)
-  - Linux / Windows ARM64: CPU inference
-- **NTSC Video Processing**: Deinterlacing support for interlaced video content
+- **Frame Interpolation (VFI)**: Practical-RIFE v4.25 (MIT), supporting arbitrary intermediate timestamps
+- **Upscaling**: Eight Real-ESRGAN safetensors variants: `realesr-animevideov3`, `realesr-animevideov3-hf`, `realesr-generalx4v3`, `realesr-generalx4v3-hf`, `realesrgan-x4plus`, `realesrgan-x4plus-hf`, `realesrgan-x4plus-anime`, `realesrgan-x4plus-anime-hf`
+- **Native platforms**: macOS arm64 (MPS), Linux x86_64 and Windows x86_64 (CUDA when available, otherwise CPU)
 
 ## Build Requirements
 
-### Prerequisites
-- **Rust**: 1.88 or newer (install via [rustup](https://rustup.rs/))
-- **Make**: For build automation
+- Rust 1.88 or newer (install via [rustup](https://rustup.rs/))
+- Make and Bash; on Windows, use MSYS2 Make/Bash with the MSVC Rust toolchain and Visual Studio C++ build tools
+- libclang (for bindgen) and FFmpeg 9.x shared development libraries/headers; on macOS/Linux, make them visible to pkg-config
+- Official libtorch **2.11.0** matching the host architecture (and CUDA driver, if using CUDA). Set `LIBTORCH` to its extracted directory, not its `lib/` subdirectory. Windows also requires `FFMPEG_DIR` pointing to an FFmpeg 9 shared development package.
+- At runtime, FFmpeg 9.x system shared libraries with libx265 are required; FFmpeg is not bundled. `make dist` packages the dynamic libtorch libraries with the binary.
 
-### Platform-Specific Requirements
-
-#### macOS
-```bash
-xcode-select --install
-```
-
-#### Linux
-```bash
-# Ubuntu/Debian
-sudo apt install build-essential
-
-# Optional: CUDA and TensorRT for GPU acceleration
-```
-
-#### Windows
-- Visual Studio 2019 or later (with C++ build tools)
-- Or MinGW-w64 via [MSYS2](https://www.msys2.org/)
+The tch 0.26/libtorch 2.13 spike measured **200.567 ms** median MPS inference against a **110.4 ms** baseline. The fallback to tch 0.24/libtorch 2.11.0 measured **176.583 ms** and **154.261 ms** medians; it is still slower than the baseline.
 
 ## Building
 
-### Quick Start
+Build on the target host only; cross-compilation and Linux/Windows ARM64 are not supported. Install the host Rust target with rustup if needed.
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd pixworker
-
-# Build release version (recommended)
-make
-
-# Or build debug version
-make debug
+export LIBTORCH="/path/to/libtorch-2.11.0"
+# Windows (MSYS2 Bash): also export FFMPEG_DIR="/path/to/ffmpeg-9-shared-dev"
+make                 # native release build
+make dist            # package in dist/<target-triple>/
+make help            # show native platform targets
 ```
 
-### Cross-Platform Compilation
+The named targets `make macos-arm64`, `make linux-x64`, and `make windows-x64` build and package only on their matching hosts. The binary is in `target/<target-triple>/release/pixworker` (or `pixworker.exe` on Windows); the package is in `dist/<target-triple>/`. Packaging does not include FFmpeg or remove existing `dist` contents.
 
-```bash
-# View all available targets
-make help
-
-# Build for specific platforms
-make macos-arm64    # macOS Apple Silicon
-make linux-x64      # Linux x86_64
-make linux-arm64    # Linux ARM64
-make windows-x64    # Windows x86_64 (Windows host)
-make windows-arm64  # Windows ARM64 (Windows host)
-
-# Build all platforms and package
-make dist
-```
-
-**Note**: 
-- Windows binaries cannot be cross-compiled from macOS/Linux (due to `ring` crate limitations)
-- Windows builds must be done on a Windows machine
-- Cross-compiling Linux targets may require additional linker configuration
-
-### Binary Locations
-
-- Release build: `target/release/pixworker`
-- Debug build: `target/debug/pixworker`
-- Multi-platform package: `dist/<target-triple>/pixworker`
+For unbundled local builds, set `DYLD_LIBRARY_PATH="$LIBTORCH/lib"` on macOS or `LD_LIBRARY_PATH="$LIBTORCH/lib"` on Linux when running the binary or `cargo test`. On Windows, add `%LIBTORCH%/lib` to `PATH`. `PYTORCH_ENABLE_MPS_FALLBACK=0` prevents silent CPU fallback during MPS validation.
 
 ## Usage
 
-### Model Download
+### Models
 
-On first run, you need to download ONNX model files. Place models in the following directories:
-
-```
-~/.cache/pixworker/models/vfi/       # Frame interpolation models
-~/.cache/pixworker/models/upscale/   # Upscaling models
-```
-
-Or the program will automatically download them from huggingface.co.
+Models are `.safetensors` files, cached in `~/.cache/pixworker/models/upscale/` and `~/.cache/pixworker/models/vfi/`. Missing Real-ESRGAN weights are downloaded after license confirmation. RIFE uses `rife-v4.25_fp32.safetensors` in the VFI cache; its Hugging Face URL currently returns **404** until the user uploads the converted weights to `universonic/RIFE`. Until then, place that file in the VFI cache locally before using interpolation.
 
 ### Basic Commands
 
 ```bash
-# Frame interpolation - increase video frame rate to 60fps
-pixworker enhance --vfi 60fps --vfi-model gimm-vfi-f-p-hf -i input.mp4 -o output.mp4
+# Interpolate to 60 fps (RIFE v4.25 is the default VFI model)
+pixworker enhance --vfi 60fps --upscale 1.0 -i input.mp4 -o output.mp4
 
-# Video upscaling - 4x resolution
+# Upscale to 4x resolution
 pixworker enhance --upscale 4.0 --upscale-model realesr-animevideov3-hf -i input.mp4 -o output.mp4
 
-# Show help
 pixworker --help
 ```
 
-## Development
+### Model Parity (Development)
+
+`examples/parity.rs` dumps raw RGB24 frames and checks the eight upscale models and RIFE against CPU FP32 `.f32` and quantized `.u8` references from the official PyTorch implementations. Generate those references once in a temporary Python environment under `tmp/`; Python is not a product dependency. Place the reference files next to the dumped frames, then run:
 
 ```bash
-# Run build
-make
-
-# Clean build artifacts
-make clean
+DYLD_LIBRARY_PATH="$LIBTORCH/lib" cargo run --example parity -- dump input.mp4 tmp/ref
+DYLD_LIBRARY_PATH="$LIBTORCH/lib" cargo run --example parity -- check tmp/ref cpu
+# On macOS arm64 with MPS and the quantized reference files:
+DYLD_LIBRARY_PATH="$LIBTORCH/lib" PYTORCH_ENABLE_MPS_FALLBACK=0 cargo run --example parity -- check tmp/ref mps
 ```
 
 ## License
 
-### Source Code
+The pixworker source code is licensed under the **MIT License**. See [LICENSE](LICENSE).
 
-The pixworker source code is licensed under the **MIT License**. See [LICENSE](LICENSE) file for details.
+- **Practical-RIFE v4.25** (frame interpolation): MIT, [license](https://github.com/hzwer/Practical-RIFE/blob/main/LICENSE). Commercial use is allowed subject to the license notice.
+- **Real-ESRGAN** (upscaling): BSD 3-Clause, [license](https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE). Commercial use is allowed subject to the copyright and license notices.
 
-### AI Models
-
-This project uses AI models with different licenses:
-
-#### GIMM-VFI (Frame Interpolation)
-- **License**: S-Lab License 1.0 (Non-Commercial)
-- **Link**: https://github.com/GSeanCDAT/GIMM-VFI/blob/main/LICENSE
-- **Restrictions**: 
-  - ✅ Personal, non-commercial use
-  - ✅ Academic research
-  - ✅ Educational purposes
-  - ❌ Commercial products or services
-  - ❌ Profit-generating activities
-- **Commercial Use**: Contact the contributors for permission
-
-#### Real-ESRGAN (Upscaling)
-- **License**: BSD 3-Clause License
-- **Link**: https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE
-- **Restrictions**:
-  - ✅ Commercial use allowed
-  - ✅ Modification allowed
-  - ✅ Distribution allowed
-  - ⚠️ Must include copyright notice and license text
-
-### Usage Guidelines
-
-**Important**: Due to GIMM-VFI's non-commercial license:
-- **If you use VFI (frame interpolation)**: The software **cannot be used for commercial purposes**
-- **If you only use upscaling**: Commercial use is permitted under BSD 3-Clause terms
-
-The software will prompt you to accept the respective model license when downloading models for the first time.
+The program prompts for the applicable model license before downloading missing weights.
